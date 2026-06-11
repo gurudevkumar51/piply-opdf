@@ -446,16 +446,24 @@ class LayoutDetector:
                     if cw < 8 or ch < 8:
                         continue
 
+                    # Add a 2-pixel inward padding to strictly crop inside the cell,
+                    # avoiding the thick black grid lines that cause visual 'spilling'.
+                    pad = 2
+                    x_pad = cx + pad
+                    y_pad = cy + pad
+                    w_pad = max(1, cw - pad * 2)
+                    h_pad = max(1, ch - pad * 2)
+
                     cells.append(
                         LayoutRegion(
                             region_id=_next_id("cell"),
                             type=RegionType.CELL,
                             page_number=page_number,
                             bbox=BoundingBox(
-                                x=cx,
-                                y=cy,
-                                width=cw,
-                                height=ch,
+                                x=x_pad,
+                                y=y_pad,
+                                width=w_pad,
+                                height=h_pad,
                             ),
                         )
                     )

@@ -100,7 +100,6 @@ class PaddleOCREngine(OCREngine):
             kwargs: dict[str, Any] = {
                 "use_angle_cls": self.use_angle_cls,
                 "lang": self.lang,
-                "show_log": False,
             }
             # Only pass use_gpu when the constructor still accepts it (v2.x)
             if "use_gpu" in params:

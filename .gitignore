@@ -1,5 +1,6 @@
 /.pytest_cache
-/134242485947340351.pdf
+/*.pdf
 /134242485947340351_piply
-/sample.pdf
 /sample_piply
+*/__pycache__/*
+piply_opdf/phases/__pycache__/phase1_assess.cpython-313.pyc
