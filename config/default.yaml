@@ -1,0 +1,141 @@
+# Default configuration for piply-opdf
+# All values can be overridden by passing a custom YAML config file.
+
+# ─── Phase 1: Document Assessment ────────────────────────────────────────────
+assessment:
+  # Laplacian variance below this = image is considered blurry
+  blur_threshold: 100.0
+
+  # Estimated noise level (0-1 normalised) above this = noisy
+  noise_threshold: 0.02
+
+  # RMS contrast below this = low contrast
+  contrast_threshold: 50.0
+
+  # Skew angle (degrees) above this = deskewing required
+  skew_threshold: 2.0
+
+  # Minimum DPI considered acceptable; below = low-resolution warning
+  min_dpi: 150
+
+  # Render resolution when converting PDF pages to images (dpi)
+  render_dpi: 300
+
+# ─── Phase 2: Document Enhancement ───────────────────────────────────────────
+enhancement:
+  # Apply deskew when skew_threshold is exceeded
+  auto_deskew: true
+
+  # Apply denoising when noise_threshold is exceeded
+  auto_denoise: true
+
+  # Apply unsharp-mask sharpening when blur_threshold is not met
+  auto_sharpen: true
+
+  # CLAHE clip limit for contrast enhancement
+  clahe_clip_limit: 2.0
+  clahe_tile_grid_size: [8, 8]
+
+  # Morphological kernel size for border enhancement
+  border_kernel_size: 3
+
+  # Dilation iterations for table border reconstruction
+  table_border_dilation_iter: 2
+
+  # JPEG quality when saving enhanced images (1–100)
+  output_quality: 95
+
+# ─── Phase 3: Layout Detection ───────────────────────────────────────────────
+layout_detection:
+  # Header region = top N% of page (fallback when no table found)
+  header_ratio: 0.12
+
+  # Footer region = bottom N% of page (fallback when no table found)
+  footer_ratio: 0.10
+
+  # Minimum contour area (pixels²) to keep a text block — noise guard
+  min_region_area: 2000
+
+  # Minimum width AND height (pixels) for any text block — noise guard
+  min_region_dim: 20
+
+  # Minimum distinct line count to classify a region as a table
+  table_min_lines: 2
+
+  # Horizontal line: minimum px width to be detected as a line
+  h_line_min_px: 60
+
+  # Vertical line: minimum px height to be detected as a line
+  v_line_min_px: 30
+
+  # Horizontal line must span this fraction of the table width
+  h_line_span: 0.10
+
+  # Vertical line must span this fraction of the table height
+  v_line_span: 0.03
+
+# ─── Phase 4: Layout Extraction ──────────────────────────────────────────────
+layout_extraction:
+  # Padding (pixels) added around each cropped region
+  region_padding: 4
+
+  # Output directory name for extracted layout images
+  output_dir: layouts
+
+  # Manifest file name
+  manifest_file: layout_manifest.json
+
+# ─── Phase 5: OCR Engine ─────────────────────────────────────────────────────
+ocr:
+  # Primary engine: "paddleocr" or "tesseract"
+  engine: paddleocr
+
+  # Fallback engine if primary is unavailable
+  fallback_engine: tesseract
+
+  # Language(s) — PaddleOCR: "en", Tesseract: "eng"
+  lang: en
+
+  # PaddleOCR-specific options
+  paddleocr:
+    use_angle_cls: true
+    use_gpu: false
+    show_log: false
+
+  # Tesseract-specific options
+  tesseract:
+    config: "--oem 3 --psm 6"
+    lang: eng
+
+# ─── Phase 6: Confidence Analysis (stub — implemented in Batch 2) ─────────────
+confidence:
+  # Confidence below this is flagged as doubtful
+  doubt_threshold: 0.80
+
+  # Preferred review granularity: "word", "cell", or "char"
+  review_unit: word
+
+# ─── Phase 7: Doubt Detection (stub — implemented in Batch 2) ────────────────
+doubt_detection:
+  output_dir: doubt_img
+
+# ─── Phase 8: Human Feedback (stub — implemented in Batch 2) ─────────────────
+feedback:
+  db_path: ./knowledge.db
+
+# ─── Phase 9–10: Knowledge & ML (stub — implemented in Batch 2) ──────────────
+knowledge:
+  db_path: ./knowledge.db
+  ml_min_samples: 50
+  model_path: ./knowledge_model.pkl
+
+# ─── Phase 11: Document Rebuilding (stub — implemented in Batch 3) ───────────
+rebuilding:
+  default_font: Helvetica
+  default_font_size: 11
+  line_spacing: 1.4
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+logging:
+  level: INFO
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
