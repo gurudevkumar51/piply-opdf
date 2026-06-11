@@ -47,6 +47,13 @@ class PageAssessment(BaseModel):
     width_px: int = Field(..., description="Page width in pixels at render DPI")
     height_px: int = Field(..., description="Page height in pixels at render DPI")
 
+    # Document Classification
+    doc_type: str = Field("SCANNED", description="DIGITAL, SCANNED, or HYBRID")
+    image_bboxes: list[tuple[int, int, int, int]] = Field(
+        default_factory=list,
+        description="Bounding boxes of embedded images in pixels at render DPI (x1, y1, x2, y2)"
+    )
+
 
 class AssessmentResult(BaseModel):
     """Full document assessment result."""

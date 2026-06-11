@@ -89,6 +89,29 @@ def get_page_metadata(pdf_path: str | Path, page_index: int) -> dict:
         }
 
 
+def get_page_classification(pdf_path: str | Path, page_index: int, dpi: int = 300) -> dict:
+    """Classify page as DIGITAL, SCANNED, or HYBRID and get image bounding boxes."""
+    with fitz.open(str(pdf_path)) as doc:
+        page = doc[page_index]
+        text_len = len(page.get_text("text").strip())
+        image_info = page.get_image_info()
+        scale = dpi / 72.0
+        
+        image_bboxes = []
+        for img in image_info:
+            x0, y0, x1, y1 = img["bbox"]
+            image_bboxes.append((int(x0 * scale), int(y0 * scale), int(x1 * scale), int(y1 * scale)))
+            
+        doc_type = "SCANNED"
+        if text_len > 0:
+            doc_type = "HYBRID" if len(image_bboxes) > 0 else "DIGITAL"
+            
+        return {
+            "doc_type": doc_type,
+            "image_bboxes": image_bboxes
+        }
+
+
 def iter_pages(
     pdf_path: str | Path,
     dpi: int = 300,

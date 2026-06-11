@@ -127,6 +127,9 @@ class DocumentEnhancer:
         assessment: PageAssessment | None,
     ) -> np.ndarray:
         """Apply the appropriate enhancement steps to one page image."""
+        if assessment and getattr(assessment, "doc_type", "SCANNED") in ("DIGITAL", "HYBRID"):
+            return image.copy()
+            
         img = image.copy()
 
         # Determine which operations to apply

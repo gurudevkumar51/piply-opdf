@@ -131,6 +131,14 @@ pytest tests/unit/ -v
 
 ---
 
+## Validation run
+
+```bash
+piply-opdf run 134242485947340351.pdf
+piply-opdf run sample.pdf
+piply-opdf run 2000267806.pdf
+```
+
 ## License
 
 MIT

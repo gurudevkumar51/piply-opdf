@@ -37,7 +37,7 @@ from piply_opdf.utils.image import (
     rms_contrast,
     to_gray,
 )
-from piply_opdf.utils.pdf import get_page_metadata, iter_pages, page_count
+from piply_opdf.utils.pdf import get_page_metadata, get_page_classification, iter_pages, page_count
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,13 @@ class DocumentAssessor:
             n_pages = page_count(source_path)
             for page_idx, img in iter_pages(source_path, dpi=self.render_dpi):
                 meta = get_page_metadata(source_path, page_idx)
-                assessment = self._assess_image(img, page_number=page_idx + 1)
+                cls_info = get_page_classification(source_path, page_idx, dpi=self.render_dpi)
+                assessment = self._assess_image(
+                    img, 
+                    page_number=page_idx + 1,
+                    doc_type=cls_info["doc_type"],
+                    image_bboxes=cls_info["image_bboxes"]
+                )
                 pages.append(assessment)
                 logger.debug("Page %d/%d assessed", page_idx + 1, n_pages)
         else:
@@ -103,7 +109,7 @@ class DocumentAssessor:
             img = cv2.imread(str(source_path))
             if img is None:
                 raise ValueError(f"Cannot read image: {source_path}")
-            pages.append(self._assess_image(img, page_number=1))
+            pages.append(self._assess_image(img, page_number=1, doc_type="SCANNED"))
 
         result = self._build_result(str(source_path), pages)
 
@@ -118,7 +124,7 @@ class DocumentAssessor:
 
     # ── Per-page assessment ───────────────────────────────────────────────────
 
-    def _assess_image(self, image: np.ndarray, page_number: int) -> PageAssessment:
+    def _assess_image(self, image: np.ndarray, page_number: int, doc_type: str = "SCANNED", image_bboxes: list = None) -> PageAssessment:
         """Compute quality metrics for a single page image."""
         gray = to_gray(image)
         h, w = gray.shape
@@ -160,6 +166,8 @@ class DocumentAssessor:
             enhancement_needed=enhancement_needed,
             width_px=w,
             height_px=h,
+            doc_type=doc_type,
+            image_bboxes=image_bboxes or [],
         )
 
     # ── Result aggregation ────────────────────────────────────────────────────

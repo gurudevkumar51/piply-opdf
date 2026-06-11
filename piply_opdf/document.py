@@ -187,7 +187,7 @@ class Document:
         out = Path(output_path) if output_path else self.work_dir / "layout.json"
 
         detector = LayoutDetector(config=self.config)
-        self._layout_result = detector.detect(source, output_path=out)
+        self._layout_result = detector.detect(source, output_path=out, assessment=self._assessment)
         return self._layout_result
 
     # ── Phase 4: Layout Extraction ────────────────────────────────────────────

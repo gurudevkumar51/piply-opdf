@@ -113,6 +113,7 @@ class LayoutDetector:
         self,
         source_path: str | Path,
         output_path: str | Path | None = None,
+        assessment: Any | None = None,
     ) -> LayoutResult:
         """Detect layout regions for all pages in a PDF (or single image)."""
         source_path = Path(source_path)
@@ -124,7 +125,15 @@ class LayoutDetector:
         if source_path.suffix.lower() == ".pdf":
             n_pages = page_count(source_path)
             for page_idx, img in iter_pages(source_path, dpi=self.render_dpi):
-                regions = self._detect_page(img, page_number=page_idx + 1)
+                page_assessment = None
+                if assessment and hasattr(assessment, "pages") and page_idx < len(assessment.pages):
+                    page_assessment = assessment.pages[page_idx]
+                
+                if page_assessment and getattr(page_assessment, "doc_type", "SCANNED") == "DIGITAL":
+                    logger.info(f"Page {page_idx+1} is completely DIGITAL. Skipping Layout Detection.")
+                    continue
+                    
+                regions = self._detect_page(img, page_number=page_idx + 1, page_assessment=page_assessment)
                 all_regions.extend(regions)
                 logger.debug(
                     "Page %d/%d — found %d top-level regions",
@@ -134,7 +143,11 @@ class LayoutDetector:
             img = cv2.imread(str(source_path))
             if img is None:
                 raise ValueError(f"Cannot read image: {source_path}")
-            all_regions = self._detect_page(img, page_number=1)
+            
+            page_assessment = None
+            if assessment and hasattr(assessment, "pages") and len(assessment.pages) > 0:
+                page_assessment = assessment.pages[0]
+            all_regions = self._detect_page(img, page_number=1, page_assessment=page_assessment)
 
         n_pages_out = page_count(source_path) if source_path.suffix.lower() == ".pdf" else 1
         result = LayoutResult(
@@ -157,9 +170,22 @@ class LayoutDetector:
 
     # ── Page pipeline ─────────────────────────────────────────────────────────
 
-    def _detect_page(self, image: np.ndarray, page_number: int) -> list[LayoutRegion]:
+    def _detect_page(self, image: np.ndarray, page_number: int, page_assessment: Any | None = None) -> list[LayoutRegion]:
         """Run the full detection pipeline on one rendered page image."""
         h, w = image.shape[:2]
+        
+        if page_assessment and getattr(page_assessment, "doc_type", "SCANNED") == "HYBRID":
+            # Mask out the digital text entirely; only process the embedded raster images!
+            masked_image = np.full((h, w, 3), 255, dtype=np.uint8)  # White background
+            for bbox in getattr(page_assessment, "image_bboxes", []):
+                x1, y1, x2, y2 = bbox
+                # Constrain to image dimensions
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w, x2), min(h, y2)
+                if x2 > x1 and y2 > y1:
+                    masked_image[y1:y2, x1:x2] = image[y1:y2, x1:x2]
+            image = masked_image
+
         gray = to_gray(image)
         regions: list[LayoutRegion] = []
 
@@ -220,8 +246,8 @@ class LayoutDetector:
         binary[:, -30:] = 0
 
         # ── Detect Lines with proportional kernels ───────
-        h_kernel_w = max(40, w // 60)
-        v_kernel_h = max(40, h // 60)
+        h_kernel_w = max(150, w // 15)
+        v_kernel_h = max(150, h // 20)
         
         h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (h_kernel_w, 1))
         h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, h_kernel)
@@ -239,8 +265,8 @@ class LayoutDetector:
         grid_exact = cv2.add(h_lines, v_lines)
 
         # ── Aggressive dilation to merge fragments of the same table ───────
-        merge_ksize_h = 20
-        merge_ksize_v = 5
+        merge_ksize_h = max(20, w // 20)
+        merge_ksize_v = max(20, h // 40)
         merge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (merge_ksize_h, merge_ksize_v))
         dilated = cv2.dilate(grid_bridged, merge_kernel, iterations=1)
 
@@ -377,14 +403,10 @@ class LayoutDetector:
 
 
         
-        # If we expanded tw/tx because of an open column, we must ensure there's a column boundary at 0 and tw
-        if len(col_seps) > 0 and col_seps[0] > 20:
-            col_seps = np.insert(col_seps, 0, 0)
-        elif len(col_seps) == 0:
-            col_seps = np.array([0])
-            
-        if tw > col_seps[-1] + 20:
-            col_seps = np.append(col_seps, tw)
+        if len(col_seps) == 0:
+            col_seps = np.array([0, tw])
+        elif len(col_seps) == 1:
+            col_seps = np.array([0, col_seps[0], tw])
             
         local_orig_right = orig_right_edge - bx
         if local_orig_right > col_seps[-1] + 30:
@@ -414,27 +436,8 @@ class LayoutDetector:
                 row.append([x_start, y_start, x_end, y_end])
             grid_cells.append(row)
 
-        h_lines_thick = cv2.dilate(roi_h, np.ones((5, 1), np.uint8), iterations=1)
-
-        # ── Targeted Merge for Blank/Merged Columns ─────────────────
-        # To satisfy conflicting requirements (extract every handwritten cell individually 
-        # BUT merge the intentionally blank 2nd column), we explicitly merge the 2nd column (j=1)
-        for j in range(len(col_seps)-1):
-            for i in range(len(row_seps)-2):
-                c1 = grid_cells[i][j]
-                c2 = grid_cells[i+1][j]
-                if c1 is None or c2 is None:
-                    continue
-                
-                # The user explicitly requested that the 2nd column be completely merged 
-                # vertically EXCEPT for the 1st header cell.
-                if j == 1 and i >= 0:
-                    # We merge downwards unconditionally to form 1 massive cell for the body
-                    # Wait, if i >= 0, the header (row 0) will merge with row 1!
-                    # So we must use i >= 1 to protect the header!
-                    if i >= 1:
-                        grid_cells[i+1][j] = [c1[0], c1[1], c2[2], c2[3]]
-                        grid_cells[i][j] = None
+        # No heuristic cell merging is performed.
+        # The line-projection perfectly slices the table into a rigid grid of isolated cells.
 
         cells: list[LayoutRegion] = []
         for row in grid_cells:

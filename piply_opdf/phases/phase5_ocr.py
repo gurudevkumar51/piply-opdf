@@ -100,6 +100,7 @@ class PaddleOCREngine(OCREngine):
             kwargs: dict[str, Any] = {
                 "use_angle_cls": self.use_angle_cls,
                 "lang": self.lang,
+                "enable_mkldnn": False,
             }
             # Only pass use_gpu when the constructor still accepts it (v2.x)
             if "use_gpu" in params:
@@ -112,29 +113,59 @@ class PaddleOCREngine(OCREngine):
         return self._ocr
 
     def run(self, image: np.ndarray) -> list[WordResult]:
+        if image is None or image.size == 0 or image.shape[0] < 5 or image.shape[1] < 5:
+            return []
+            
         ocr = self._get_ocr()
         # PaddleOCR expects BGR (OpenCV default) or RGB
-        results = ocr.ocr(image, cls=self.use_angle_cls)
+        results = ocr.ocr(image)
 
         words: list[WordResult] = []
         if not results or results[0] is None:
             return words
 
+        # PaddleOCR v3 (PaddleX) returns a list of dicts
+        if isinstance(results[0], dict):
+            res_dict = results[0]
+            if "rec_texts" in res_dict and "dt_polys" in res_dict:
+                texts = res_dict.get("rec_texts", [])
+                scores = res_dict.get("rec_scores", [])
+                polys = res_dict.get("dt_polys", [])
+                
+                for i in range(len(texts)):
+                    text = str(texts[i])
+                    conf = float(scores[i]) if i < len(scores) else 0.0
+                    poly = polys[i] if i < len(polys) else None
+                    
+                    if poly is not None and len(poly) > 0:
+                        xs = [int(p[0]) for p in poly]
+                        ys = [int(p[1]) for p in poly]
+                        bbox = (min(xs), min(ys), max(xs), max(ys))
+                    else:
+                        bbox = (0, 0, image.shape[1], image.shape[0])
+                        
+                    words.append(WordResult(text=text, confidence=conf, bbox=bbox))
+            return words
+
+        # PaddleOCR v2 returns [[[bbox, (text, conf)], ...]]
         for line in results[0]:
             if line is None:
                 continue
-            bbox_pts, (text, conf) = line
-            # Convert polygon bbox to AABB (x, y, x2, y2)
-            xs = [int(p[0]) for p in bbox_pts]
-            ys = [int(p[1]) for p in bbox_pts]
-            bbox = (min(xs), min(ys), max(xs), max(ys))
-            words.append(
-                WordResult(
-                    text=str(text),
-                    confidence=float(conf),
-                    bbox=bbox,
+            try:
+                bbox_pts, (text, conf) = line
+                # Convert polygon bbox to AABB (x, y, x2, y2)
+                xs = [int(p[0]) for p in bbox_pts]
+                ys = [int(p[1]) for p in bbox_pts]
+                bbox = (min(xs), min(ys), max(xs), max(ys))
+                words.append(
+                    WordResult(
+                        text=str(text),
+                        confidence=float(conf),
+                        bbox=bbox,
+                    )
                 )
-            )
+            except Exception:
+                continue
         return words
 
 
