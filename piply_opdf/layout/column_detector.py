@@ -146,7 +146,16 @@ class ColumnDetector:
             
             # Reject columns narrower than 25 pixels
             if x2 - x1 >= 25: 
-                col_bbox = GridBoundingBox(x=tx + x1, y=ty, width=x2 - x1, height=th)
+                # Add a 5-pixel padding to left and right to prevent minor cropping from residual tilt
+                padding = 5
+                col_x = max(0, tx + x1 - padding)
+                
+                # Ensure the right padding doesn't exceed the table's total width (or page width)
+                # We can just cap it loosely, but since we are just returning a bounding box, 
+                # the downstream cropper will handle image boundaries.
+                col_w = min(tw - (col_x - tx), (x2 - x1) + (padding * 2))
+                
+                col_bbox = GridBoundingBox(x=col_x, y=ty, width=col_w, height=th)
                 columns.append(ColumnModel(
                     column_id=f"{table_id}_col_{col_idx:03d}",
                     parent_table=table_id,
