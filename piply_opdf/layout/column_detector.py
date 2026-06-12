@@ -19,15 +19,21 @@ class ColumnDetector:
         tx, ty, tw, th = table_bbox.to_tuple()
         roi_gray = gray[ty:ty+th, tx:tx+tw]
         
-        _, thresh = cv2.threshold(roi_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        thresh = cv2.adaptiveThreshold(
+            roi_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 4
+        )
         
         h, w = thresh.shape
         if h == 0 or w == 0:
             return []
             
+        h_page, w_page = gray.shape
+        
         # 1. Detect explicit vertical lines
-        # Use a thickness of 1 and standard height threshold
-        v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, h // 20)))
+        # Use a thickness of 1 and a safe height threshold that won't delete valid segments
+        # that are broken by horizontal row lines. 40 pixels is usually safe for 300 DPI.
+        v_kernel_size = max(20, min(60, h_page // 50)) 
+        v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, v_kernel_size))
         v_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, v_kernel, iterations=2)
         
         # Dilate slightly vertically to bridge minor gaps
@@ -89,37 +95,38 @@ class ColumnDetector:
         if in_gutter: 
             gutters.append((start, len(text_proj_smoothed)))
         
-        # 3. Filter gutters based on intelligent text-line separation
+        # 3. Filter gutters based on minimum width to prevent word gaps from becoming columns
         whitespace_boundaries = []
+        
+        # A true column gutter is usually at least 15-20 pixels wide at 300 DPI.
+        # Gaps between words are typically 5-15 pixels.
+        min_gutter_width = max(15, w // 100)
+        
         for g_start, g_end in gutters:
-            if g_end - g_start >= 1: # Very low threshold to catch the tightest columns in sample.pdf
+            if g_end - g_start >= min_gutter_width:
+                # Check if there is an explicit grid line associated with this gutter
+                # A grid line is associated if it's anywhere inside the gutter or close to its edges
+                has_grid_line = False
+                for lb in line_boundaries:
+                    if g_start - 15 <= lb <= g_end + 15:
+                        has_grid_line = True
+                        break
                 
-                # Find nearest text to the left
-                p_left = g_start - 1
-                while p_left >= 0 and text_proj_smoothed[p_left] < h * 0.02:
-                    p_left -= 1
-                    
-                # Find nearest text to the right
-                p_right = g_end
-                while p_right < len(text_proj_smoothed) and text_proj_smoothed[p_right] < h * 0.02:
-                    p_right += 1
-                    
-                # Every significant whitespace gutter is a valid column divider!
-                # If there happens to be an explicit grid line nearby, the `< 5px` merge logic below will deduplicate them.
-                mid = (g_start + g_end) // 2
-                whitespace_boundaries.append(mid)
+                if not has_grid_line:
+                    mid = (g_start + g_end) // 2
+                    whitespace_boundaries.append(mid)
                     
         boundaries = line_boundaries + whitespace_boundaries
         boundaries.sort()
         
-        # Merge boundaries that are very close to each other (< 5px) 
+        # Merge boundaries that are very close to each other (< 15px) 
         # to prevent micro-columns, but preserve actual thin columns
         merged_b = []
         for b in boundaries:
             if not merged_b:
                 merged_b.append(b)
             else:
-                if b - merged_b[-1] < 5:
+                if b - merged_b[-1] < 15:
                     merged_b[-1] = (merged_b[-1] + b) // 2
                 else:
                     merged_b.append(b)
