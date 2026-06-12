@@ -22,6 +22,15 @@ class TableDetector:
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 4
         )
 
+        # Zero out the extreme edges to remove page-level scanning artifacts
+        # Using a conservative 2% margin (e.g., 16 pixels on an 800px wide image)
+        MARGIN_X = max(15, int(w * 0.02))
+        MARGIN_Y = max(15, int(h * 0.02))
+        thresh[:MARGIN_Y, :] = 0
+        thresh[-MARGIN_Y:, :] = 0
+        thresh[:, :MARGIN_X] = 0
+        thresh[:, -MARGIN_X:] = 0
+
         # 2. Extract Horizontal and Vertical Lines
         h_len = max(w // 40, 30)
         v_len = max(h // 40, 30)
