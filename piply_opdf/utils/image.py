@@ -115,29 +115,48 @@ def estimate_noise(gray: CVImage) -> float:
 
 def estimate_skew_angle(gray: CVImage) -> float:
     """
-    Estimate document skew angle in degrees using Hough line transform.
-
+    Estimate document skew angle in degrees using HoughLinesP and Projection Optimization.
     Returns a value in [-45, 45].
     """
-    # Threshold + edge detection
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    edges = cv2.Canny(thresh, 50, 150, apertureSize=3)
-
-    lines = cv2.HoughLines(edges, 1, np.pi / 180, threshold=100)
+    
+    # Use HoughLinesP for better line segment detection on tables
+    lines = cv2.HoughLinesP(thresh, 1, np.pi / 180, threshold=100, minLineLength=50, maxLineGap=10)
+    
     if lines is None:
         return 0.0
-
-    angles: list[float] = []
-    for line in lines[:50]:  # use top 50 lines
-        rho, theta = line[0]
-        angle = np.degrees(theta) - 90.0
-        # Keep only near-horizontal lines
+        
+    angles = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+        # Keep near horizontal lines
         if abs(angle) < 45:
             angles.append(angle)
-
+            
     if not angles:
         return 0.0
-    return float(np.median(angles))
+        
+    median_angle = float(np.median(angles))
+    
+    # Fine-tune via Projection Optimization
+    # Search around the median_angle +/- 2 degrees in 0.1 steps
+    best_angle = median_angle
+    max_var = 0.0
+    
+    for a in np.arange(median_angle - 2.0, median_angle + 2.1, 0.2):
+        # Rotate thresholded image
+        h, w = thresh.shape
+        M = cv2.getRotationMatrix2D((w // 2, h // 2), a, 1.0)
+        rotated = cv2.warpAffine(thresh, M, (w, h), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        # Calculate horizontal projection variance
+        proj = np.sum(rotated, axis=1)
+        var = np.var(proj)
+        if var > max_var:
+            max_var = var
+            best_angle = a
+            
+    return float(best_angle)
 
 
 def compute_histogram(gray: CVImage, bins: int = 256) -> np.ndarray:
@@ -178,16 +197,29 @@ def crop_region(
 def rotate_image(image: CVImage, angle: float) -> CVImage:
     """
     Rotate an image by *angle* degrees around its centre.
-
-    Background is filled with white.
+    
+    Dynamically expands the bounding box to ensure corners are not clipped
+    during the rotation. Background is filled with white.
     """
     h, w = image.shape[:2]
     centre = (w // 2, h // 2)
     mat = cv2.getRotationMatrix2D(centre, angle, 1.0)
+    
+    # Calculate new bounding dimensions to prevent clipping
+    cos_a = np.abs(mat[0, 0])
+    sin_a = np.abs(mat[0, 1])
+    
+    new_w = int((h * sin_a) + (w * cos_a))
+    new_h = int((h * cos_a) + (w * sin_a))
+    
+    # Adjust the rotation matrix translation to center the image in the new canvas
+    mat[0, 2] += (new_w / 2) - centre[0]
+    mat[1, 2] += (new_h / 2) - centre[1]
+    
     rotated = cv2.warpAffine(
         image,
         mat,
-        (w, h),
+        (new_w, new_h),
         flags=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=(255, 255, 255) if len(image.shape) == 3 else 255,

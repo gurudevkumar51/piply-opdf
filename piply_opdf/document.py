@@ -30,13 +30,21 @@ from typing import Any
 
 from piply_opdf.config import Config, load_config
 from piply_opdf.models.assessment import AssessmentResult
-from piply_opdf.models.layout import LayoutManifest, LayoutResult
-from piply_opdf.models.ocr_result import OCRResult
+from piply_opdf.models.grid import TableModel
 from piply_opdf.phases.phase1_assess import DocumentAssessor
 from piply_opdf.phases.phase2_enhance import DocumentEnhancer
-from piply_opdf.phases.phase3_layout import LayoutDetector
-from piply_opdf.phases.phase4_extract import LayoutExtractor
-from piply_opdf.phases.phase5_ocr import OCRProcessor
+from piply_opdf.utils.pdf import iter_pages
+
+from piply_opdf.layout import (
+    TableDetector,
+    ColumnDetector,
+    RowDetector,
+    GridBuilder,
+    GridValidator,
+    CellExtractor,
+    MetadataManager,
+    DebugVisualizer
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +90,7 @@ class Document:
         # Internal state — populated as phases are run
         self._assessment: AssessmentResult | None = None
         self._enhanced_path: Path | None = None
-        self._layout_result: LayoutResult | None = None
-        self._layout_manifest: LayoutManifest | None = None
-        self._ocr_result: OCRResult | None = None
+        self.tables: list[TableModel] = []
 
         logger.info(
             "Document initialised: %s | work_dir: %s",
@@ -162,104 +168,93 @@ class Document:
         )
         return self._enhanced_path
 
-    # ── Phase 3: Layout Detection ─────────────────────────────────────────────
+    # ── Phase 3: Grid Extraction Pipeline ─────────────────────────────────────
 
-    def detect_layout(
-        self,
-        output_path: str | Path | None = None,
-        use_enhanced: bool = True,
-    ) -> LayoutResult:
+    def process_layout(self, use_enhanced: bool = True) -> list[TableModel]:
         """
-        Phase 3 — Detect document layout structure.
-
-        Parameters
-        ----------
-        output_path:
-            Override for the output layout.json path.
-        use_enhanced:
-            When True, uses the enhanced PDF if it exists; falls back to original.
-
-        Returns
-        -------
-        LayoutResult
+        Runs the new modular table and grid extraction engine.
         """
         source = self._resolve_source(use_enhanced)
-        out = Path(output_path) if output_path else self.work_dir / "layout.json"
+        self.tables = []
+        
+        table_detector = TableDetector()
+        col_detector = ColumnDetector()
+        row_detector = RowDetector()
+        grid_builder = GridBuilder()
+        validator = GridValidator()
+        cell_extractor = CellExtractor()
+        metadata_manager = MetadataManager()
+        visualizer = DebugVisualizer()
+        
+        out_dir = self.work_dir / "layouts"
+        debug_dir = self.work_dir / "debug"
+        
+        table_idx = 1
+        previous_table_cols = None
+        previous_table_id = None
+        
+        for page_idx, img in iter_pages(source, dpi=300):
+            page_num = page_idx + 1
+            
+            # 1. Detect Tables
+            table_boxes = table_detector.detect_tables(img)
+            
+            for i, t_box in enumerate(table_boxes):
+                # 2. Detect Columns using a temporary ID
+                cols = col_detector.detect_columns(img, t_box, "temp_id")
+                
+                # Multi-Page Continuation Check: Only the first table on the page can be a continuation
+                is_continuation = False
+                if i == 0 and previous_table_cols is not None:
+                    # If column counts are similar (allow variance of up to 2 due to noise), it's a continuation
+                    if abs(len(cols) - len(previous_table_cols)) <= 2 and len(cols) > 0:
+                        is_continuation = True
+                        
+                if is_continuation:
+                    t_id = previous_table_id
+                else:
+                    t_id = f"table_{table_idx:03d}"
+                    table_idx += 1
+                    
+                # Fix column IDs with the true table_id
+                for c in cols:
+                    c.parent_table = t_id
+                    c.column_id = c.column_id.replace("temp_id", t_id)
+                
+                # 3. Detect Rows
+                row_cands = row_detector.detect_row_candidates(img, cols)
+                
+                # 4. Build Grid
+                table_model = grid_builder.build_grid(t_id, t_box, page_num, cols, row_cands)
+                
+                # 5. Validate Grid
+                table_model = validator.validate(img, table_model)
+                
+                # 6. Extract Cells
+                cell_extractor.extract(img, table_model, out_dir)
+                
+                # 7. Metadata
+                metadata_manager.save_metadata(table_model, out_dir)
+                
+                # 8. Debug
+                page_debug_dir = debug_dir / f"page_{page_num}"
+                visualizer.visualize(img, table_model, page_debug_dir)
+                
+                self.tables.append(table_model)
+                
+                # Store the last table's columns and ID for the next page's continuation check
+                if i == len(table_boxes) - 1:
+                    previous_table_cols = cols
+                    previous_table_id = t_id
+                    
+            # If no tables were found on this page, break the continuation chain
+            if not table_boxes:
+                previous_table_cols = None
+                previous_table_id = None
+                
+        return self.tables
 
-        detector = LayoutDetector(config=self.config)
-        self._layout_result = detector.detect(source, output_path=out, assessment=self._assessment)
-        return self._layout_result
 
-    # ── Phase 4: Layout Extraction ────────────────────────────────────────────
-
-    def extract_layouts(
-        self,
-        output_dir: str | Path | None = None,
-        use_enhanced: bool = True,
-    ) -> LayoutManifest:
-        """
-        Phase 4 — Extract layout regions as individual image files.
-
-        Runs Phase 3 automatically if not yet done.
-
-        Parameters
-        ----------
-        output_dir:
-            Override for the output directory for cropped images.
-        use_enhanced:
-            When True, crops from the enhanced PDF if it exists.
-
-        Returns
-        -------
-        LayoutManifest
-        """
-        if self._layout_result is None:
-            self.detect_layout(use_enhanced=use_enhanced)
-
-        source = self._resolve_source(use_enhanced)
-        out_dir = Path(output_dir) if output_dir else self.work_dir / "layouts"
-
-        extractor = LayoutExtractor(config=self.config)
-        self._layout_manifest = extractor.extract(
-            source,
-            self._layout_result,  # type: ignore[arg-type]
-            output_dir=out_dir,
-        )
-        return self._layout_manifest
-
-    # ── Phase 5: OCR ─────────────────────────────────────────────────────────
-
-    def ocr(
-        self,
-        output_path: str | Path | None = None,
-    ) -> OCRResult:
-        """
-        Phase 5 — Run OCR on extracted layout regions.
-
-        Runs Phases 3 & 4 automatically if not yet done.
-
-        Parameters
-        ----------
-        output_path:
-            Override for the output ocr_result.json path.
-
-        Returns
-        -------
-        OCRResult
-        """
-        if self._layout_manifest is None:
-            self.extract_layouts()
-
-        out = Path(output_path) if output_path else self.work_dir / "ocr_result.json"
-
-        processor = OCRProcessor(config=self.config)
-        self._ocr_result = processor.ocr_manifest(
-            self._layout_manifest,  # type: ignore[arg-type]
-            output_path=out,
-        )
-        # Patch engine name
-        self._ocr_result.engine_used = processor.engine.name
-        return self._ocr_result
 
     # ── Convenience ───────────────────────────────────────────────────────────
 
@@ -275,15 +270,11 @@ class Document:
         logger.info("Running full pipeline on %s", self.source_path.name)
         assessment = self.assess()
         enhanced_path = self.enhance()
-        layout = self.detect_layout()
-        manifest = self.extract_layouts()
-        ocr_result = self.ocr()
+        layout = self.process_layout()
         return {
             "assessment": assessment,
             "enhanced_path": enhanced_path,
             "layout": layout,
-            "manifest": manifest,
-            "ocr_result": ocr_result,
         }
 
     def _resolve_source(self, use_enhanced: bool) -> Path:
@@ -302,17 +293,7 @@ class Document:
     def enhanced_path(self) -> Path | None:
         return self._enhanced_path
 
-    @property
-    def layout_result(self) -> LayoutResult | None:
-        return self._layout_result
 
-    @property
-    def layout_manifest(self) -> LayoutManifest | None:
-        return self._layout_manifest
-
-    @property
-    def ocr_result(self) -> OCRResult | None:
-        return self._ocr_result
 
     def __repr__(self) -> str:
         return f"Document(source='{self.source_path.name}', work_dir='{self.work_dir}')"

@@ -164,11 +164,13 @@ class DocumentEnhancer:
     @staticmethod
     def deskew(image: np.ndarray, angle: float) -> np.ndarray:
         """
-        Correct rotational skew by rotating *image* by *-angle* degrees.
+        Correct rotational skew by rotating *image* by *angle* degrees.
 
         Uses white background fill.
+        Note: estimate_skew_angle returns the angle of the text lines.
+        If the angle is positive (downhill), we must rotate counter-clockwise (+angle).
         """
-        return rotate_image(image, -angle)
+        return rotate_image(image, angle)
 
     @staticmethod
     def denoise(image: np.ndarray) -> np.ndarray:

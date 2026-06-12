@@ -6,7 +6,8 @@ A production-grade, lightweight, self-learning platform for:
 - 📄 Document quality assessment
 - ✨ Selective image enhancement
 - 🔍 Layout detection (header, footer, table, paragraph, cell, image…)
-- ✂️ Region-level extraction
+- ✂️ Region-level extraction & Content Classification
+- 🗂️ Similarity clustering & deduplication
 - 🤖 OCR with confidence analysis
 - 🧠 Human feedback learning *(Batch 2)*
 - 🔄 Document rebuilding *(Batch 3)*
@@ -104,7 +105,8 @@ ocr:
 | Assessment | `assessment.json` |
 | Enhancement | `<name>_enhanced.pdf` |
 | Layout Detection | `layout.json` |
-| Layout Extraction | `layouts/` + `layout_manifest.json` |
+| Layout Extraction | `layouts/<type>/<class>/` + `layout_manifest.json` |
+| Similarity Clustering | `clusters/cluster_manifest.json` |
 | OCR | `ocr_result.json` |
 
 ---
@@ -142,3 +144,4 @@ piply-opdf run 2000267806.pdf
 ## License
 
 MIT
+

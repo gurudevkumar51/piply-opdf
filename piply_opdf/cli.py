@@ -8,9 +8,8 @@ Available commands
 ------------------
     piply-opdf assess <file>
     piply-opdf enhance <file>
-    piply-opdf detect-layout <file>
-    piply-opdf extract-layouts <file>
-    piply-opdf ocr <file>
+    piply-opdf detect-tables <file>
+    piply-opdf extract-grid <file>
     piply-opdf run <file>          # full pipeline
     piply-opdf version
 """
@@ -154,107 +153,28 @@ def cmd_enhance(
     ))
 
 
-@app.command("detect-layout")
-def cmd_detect_layout(
+@app.command("extract-grid")
+def cmd_extract_grid(
     file: Annotated[Path, typer.Argument(help="PDF or image file")],
     config: ConfigOption = None,
     work_dir: WorkDirOption = None,
-    output: OutputOption = None,
-    json_only: Annotated[bool, typer.Option("--json", help="Print raw JSON output")] = False,
 ) -> None:
     """
-    [Phase 3] Detect document layout — headers, footers, tables, paragraphs.
+    [Phase 3] Run modular table/grid extraction.
 
-    Writes [bold]layout.json[/bold] to the work directory.
+    Writes images to [bold]layouts/[/bold] and manifests.
     """
     doc = _make_document(file, config, work_dir)
 
-    with console.status("[bold green]Detecting layout…"):
-        layout = doc.detect_layout(output_path=output)
-
-    if json_only:
-        console.print_json(layout.model_dump_json(indent=2))
-        return
-
-    counts = layout.count_by_type()
-    table = Table(title=f"Layout — {file.name}", show_header=True, header_style="bold magenta")
-    table.add_column("Region Type", style="cyan")
-    table.add_column("Count", justify="right")
-
-    for rtype, count in sorted(counts.items(), key=lambda x: -x[1]):
-        table.add_row(rtype, str(count))
-
-    console.print(table)
-    out_path = output or (doc.work_dir / "layout.json")
-    console.print(f"\n[dim]Saved → {out_path}[/dim]")
-
-
-@app.command("extract-layouts")
-def cmd_extract_layouts(
-    file: Annotated[Path, typer.Argument(help="PDF or image file")],
-    config: ConfigOption = None,
-    work_dir: WorkDirOption = None,
-    output_dir: Annotated[Optional[Path], typer.Option("--output-dir", "-d", help="Output directory for cropped images")] = None,
-) -> None:
-    """
-    [Phase 4] Extract layout regions as cropped image files.
-
-    Writes images to [bold]layouts/[/bold] and [bold]layout_manifest.json[/bold].
-    """
-    doc = _make_document(file, config, work_dir)
-
-    with console.status("[bold green]Running layout detection…"):
-        doc.detect_layout()
-
-    with console.status("[bold green]Extracting layout regions…"):
-        manifest = doc.extract_layouts(output_dir=output_dir)
+    with console.status("[bold green]Running grid extraction…"):
+        tables = doc.process_layout()
 
     console.print(Panel(
-        f"[green]✓[/green] Extracted [bold]{len(manifest.regions)}[/bold] regions\n"
-        f"Output directory: [bold]{manifest.output_dir}[/bold]",
-        title="Phase 4 — Layout Extraction",
+        f"[green]✓[/green] Extracted [bold]{len(tables)}[/bold] tables\n"
+        f"Output directory: [bold]{doc.work_dir}/layouts[/bold]",
+        title="Grid Extraction",
         border_style="green",
     ))
-
-
-@app.command("ocr")
-def cmd_ocr(
-    file: Annotated[Path, typer.Argument(help="PDF or image file")],
-    config: ConfigOption = None,
-    work_dir: WorkDirOption = None,
-    output: OutputOption = None,
-    json_only: Annotated[bool, typer.Option("--json", help="Print raw JSON output")] = False,
-) -> None:
-    """
-    [Phase 5] Run OCR on extracted layout regions.
-
-    Writes [bold]ocr_result.json[/bold] to the work directory.
-    """
-    doc = _make_document(file, config, work_dir)
-
-    with console.status("[bold green]Running layout detection & extraction…"):
-        doc.detect_layout()
-        doc.extract_layouts()
-
-    with console.status("[bold green]Running OCR…"):
-        ocr = doc.ocr(output_path=output)
-
-    if json_only:
-        console.print_json(ocr.model_dump_json(indent=2))
-        return
-
-    table = Table(title=f"OCR Summary — {file.name}", show_header=True, header_style="bold magenta")
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", justify="right")
-    table.add_row("Engine", ocr.engine_used)
-    table.add_row("Total regions", str(len(ocr.regions)))
-    table.add_row("Total words", str(ocr.total_words))
-    table.add_row("Mean confidence", f"{ocr.mean_confidence:.1%}")
-    table.add_row("Doubtful regions (<80%)", str(len(ocr.doubtful_regions())))
-
-    console.print(table)
-    out_path = output or (doc.work_dir / "ocr_result.json")
-    console.print(f"\n[dim]Saved → {out_path}[/dim]")
 
 
 @app.command("run")
@@ -273,24 +193,21 @@ def cmd_run(
     steps = [
         ("Phase 1 — Assessment", "assess"),
         ("Phase 2 — Enhancement", "enhance"),
-        ("Phase 3 — Layout Detection", "detect_layout"),
-        ("Phase 4 — Layout Extraction", "extract_layouts"),
-        ("Phase 5 — OCR", "ocr"),
+        ("Phase 3 — Table & Grid Extraction", "process_layout"),
     ]
 
     for label, method in steps:
         with console.status(f"[bold green]{label}…"):
             getattr(doc, method)()
-        console.print(f"[green]✓[/green] {label}")
+        console.print(f"[green][DONE][/green] {label}")
 
     console.print(Panel(
         f"[green]Pipeline complete![/green]\n"
         f"All artefacts written to: [bold]{doc.work_dir}[/bold]\n\n"
         f"  assessment.json\n"
         f"  {file.stem}_enhanced.pdf\n"
-        f"  layout.json\n"
         f"  layouts/\n"
-        f"  ocr_result.json",
+        f"  debug/",
         title="piply-opdf — Done",
         border_style="green",
     ))

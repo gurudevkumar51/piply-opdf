@@ -73,10 +73,32 @@ Features implemented:
 
 Features implemented:
 - Crops each region from the page image
-- Configurable padding per crop
+- Runs mathematical Content Classification (`phase4a_classify.py`) using edge density and connected components
+- Classifies crops into: `printed_text`, `handwriting`, `signature`, `stamp`, `image`, `empty_region`
+- Saves images into categorical folders: `layouts/<region_type>/<content_type>/`
 - Handles nested children (e.g., cells inside tables)
-- Output: `header_001.png`, `paragraph_001.png`, `table_001.png`, `cell_001.png`, …
-- `layout_manifest.json` with: coordinates, page number, type, width, height, image path
+- Output: `layouts/cell/printed_text/cell_001.png`, …
+- `layout_manifest.json` with: coordinates, page number, type, classification, width, height, image path
+
+---
+
+### Phase 4.5 — Similarity Clustering & Deduplication Engine
+**Status:** ✅ Complete  
+**Module:** `piply_opdf/phases/phase4b_cluster.py`  
+**API:** `SimilarityClusterer().cluster(manifest, output_dir) → ClusterManifest`  
+**Output:** `clusters/cluster_manifest.json`
+
+Features implemented:
+- Purely mathematical, offline, fast grouping of visually identical/similar layout crops.
+- Multi-stage evaluation weights:
+  - Perceptual Hashing (pHash): 40% (Exact/near matches)
+  - Structural Similarity (SSIM): 30% (Lightweight OpenCV/NumPy implementation)
+  - Histogram Correlation: 15% (Brightness/scan variations)
+  - Edge Density: 10% (Content density check)
+  - Projection Profiles (H+V): 5% (Text line structural match)
+- Reduces redundant OCR passes by picking 1 representative image for N identical cells.
+- Deduplicates empty regions, similar headers, footers, and standardized grid cells.
+- Logical clustering: Prevents I/O overhead by writing groups to a metadata manifest rather than duplicating files on disk.
 
 ---
 
@@ -183,7 +205,9 @@ Phase 2: DocumentEnhancer    → <name>_enhanced.pdf
   ↓
 Phase 3: LayoutDetector      → layout.json
   ↓
-Phase 4: LayoutExtractor     → layouts/ + layout_manifest.json
+Phase 4: LayoutExtractor     → layouts/<type>/<class>/ + layout_manifest.json
+  ↓
+Phase 4.5: SimilarityClusterer → clusters/cluster_manifest.json
   ↓
 Phase 5: OCRProcessor        → ocr_result.json
   ↓ [Batch 2]

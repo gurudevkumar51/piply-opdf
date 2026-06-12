@@ -13,7 +13,7 @@ assessment:
   contrast_threshold: 50.0
 
   # Skew angle (degrees) above this = deskewing required
-  skew_threshold: 2.0
+  skew_threshold: 0.1
 
   # Minimum DPI considered acceptable; below = low-resolution warning
   min_dpi: 150

@@ -59,7 +59,7 @@ class DocumentAssessor:
         self.blur_threshold: float = cfg.get("blur_threshold", 100.0)
         self.noise_threshold: float = cfg.get("noise_threshold", 0.02)
         self.contrast_threshold: float = cfg.get("contrast_threshold", 50.0)
-        self.skew_threshold: float = cfg.get("skew_threshold", 0.5)
+        self.skew_threshold: float = cfg.get("skew_threshold", 0.1)
         self.min_dpi: int = cfg.get("min_dpi", 150)
         self.render_dpi: int = cfg.get("render_dpi", 300)
 

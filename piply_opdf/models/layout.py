@@ -22,6 +22,16 @@ class RegionType(str, Enum):
     IMAGE = "image"
     UNKNOWN = "unknown"
 
+class ContentType(str, Enum):
+    PRINTED_TEXT = "printed_text"
+    TEXT_REGION = "text_region"
+    MIXED_CONTENT = "mixed_content"
+    SIGNATURE = "signature"
+    STAMP = "stamp"
+    IMAGE = "image"
+    EMPTY_REGION = "empty_region"
+    UNKNOWN = "unknown"
+
 
 class BoundingBox(BaseModel):
     """Pixel-space bounding box (top-left origin)."""
@@ -78,6 +88,15 @@ class LayoutRegion(BaseModel):
         default=None, description="Relative path to the cropped region image"
     )
 
+    content_type: ContentType = Field(
+        default=ContentType.UNKNOWN, description="Content classification of the region"
+    )
+    cluster_id: str | None = Field(
+        default=None, description="ID of the similarity cluster this region belongs to"
+    )
+    ml_features: dict[str, float] | None = Field(
+        default=None, description="Mathematical features extracted for V2 ML training"
+    )
 
 class LayoutResult(BaseModel):
     """Full layout detection result for a document."""
@@ -97,6 +116,25 @@ class LayoutResult(BaseModel):
         for r in self.regions:
             counts[r.type.value] = counts.get(r.type.value, 0) + 1
         return counts
+
+
+class ClusterGroup(BaseModel):
+    """A group of visually similar layout regions."""
+    
+    cluster_id: str = Field(..., description="Unique cluster identifier")
+    representative: str = Field(..., description="Path to the representative image for OCR")
+    members: list[str] = Field(..., description="List of all image paths in this cluster")
+    layout_type: str = Field(..., description="The RegionType of the members")
+    content_type: str = Field(..., description="The ContentType of the members")
+    total_members: int = Field(..., description="Number of members in the cluster")
+
+
+class ClusterManifest(BaseModel):
+    """Manifest of all clusters generated for a document."""
+    
+    source_path: str
+    output_dir: str
+    clusters: list[ClusterGroup] = Field(default_factory=list)
 
 
 class LayoutManifest(BaseModel):
