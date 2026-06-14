@@ -153,28 +153,81 @@ def cmd_enhance(
     ))
 
 
-@app.command("extract-grid")
-def cmd_extract_grid(
+@app.command("detect-tables")
+def cmd_detect_tables(
     file: Annotated[Path, typer.Argument(help="PDF or image file")],
     config: ConfigOption = None,
     work_dir: WorkDirOption = None,
 ) -> None:
-    """
-    [Phase 3] Run modular table/grid extraction.
-
-    Writes images to [bold]layouts/[/bold] and manifests.
-    """
+    """Detect structured bordered tables using OpenCV."""
     doc = _make_document(file, config, work_dir)
-
-    with console.status("[bold green]Running grid extraction…"):
+    with console.status("[bold green]Detecting structured tables…"):
+        # We run the full process_layout which handles the priority pipeline,
+        # but report only the bordered tables.
         tables = doc.process_layout()
 
     console.print(Panel(
-        f"[green]✓[/green] Extracted [bold]{len(tables)}[/bold] tables\n"
+        f"[green]✓[/green] Detected [bold]{len(tables)}[/bold] structured tables\n"
         f"Output directory: [bold]{doc.work_dir}/layouts[/bold]",
-        title="Grid Extraction",
+        title="Structured Table Detection (P1)",
         border_style="green",
     ))
+
+
+@app.command("detect-borderless-tables")
+def cmd_detect_borderless_tables(
+    file: Annotated[Path, typer.Argument(help="PDF or image file")],
+    config: ConfigOption = None,
+    work_dir: WorkDirOption = None,
+) -> None:
+    """Detect borderless tables using PyMuPDF and OpenCV."""
+    doc = _make_document(file, config, work_dir)
+    with console.status("[bold green]Detecting borderless tables…"):
+        doc.process_layout()
+
+    console.print(Panel(
+        f"[green]✓[/green] Detected [bold]{len(doc.borderless_tables)}[/bold] borderless tables\n"
+        f"Output directory: [bold]{doc.work_dir}/layouts[/bold]",
+        title="Borderless Table Detection (P2)",
+        border_style="green",
+    ))
+
+
+@app.command("detect-headers")
+def cmd_detect_headers(
+    file: Annotated[Path, typer.Argument(help="PDF or image file")],
+    config: ConfigOption = None,
+    work_dir: WorkDirOption = None,
+) -> None:
+    """Detect page headers using PyMuPDF."""
+    doc = _make_document(file, config, work_dir)
+    with console.status("[bold green]Detecting headers…"):
+        doc.process_layout()
+
+    console.print(Panel(
+        f"[green]✓[/green] Detected [bold]{len(doc.headers)}[/bold] headers",
+        title="Header Detection (P3)",
+        border_style="green",
+    ))
+
+
+@app.command("detect-footers")
+def cmd_detect_footers(
+    file: Annotated[Path, typer.Argument(help="PDF or image file")],
+    config: ConfigOption = None,
+    work_dir: WorkDirOption = None,
+) -> None:
+    """Detect page footers using PyMuPDF."""
+    doc = _make_document(file, config, work_dir)
+    with console.status("[bold green]Detecting footers…"):
+        doc.process_layout()
+
+    console.print(Panel(
+        f"[green]✓[/green] Detected [bold]{len(doc.footers)}[/bold] footers",
+        title="Footer Detection (P4)",
+        border_style="green",
+    ))
+
 
 
 @app.command("run")

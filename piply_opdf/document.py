@@ -36,7 +36,6 @@ from piply_opdf.phases.phase2_enhance import DocumentEnhancer
 from piply_opdf.utils.pdf import iter_pages
 
 from piply_opdf.layout import (
-    TableDetector,
     ColumnDetector,
     RowDetector,
     GridBuilder,
@@ -45,6 +44,10 @@ from piply_opdf.layout import (
     MetadataManager,
     DebugVisualizer
 )
+from piply_opdf.detectors.table_detector import TableDetector
+from piply_opdf.detectors.borderless_table_detector import BorderlessTableDetector
+from piply_opdf.detectors.header_detector import HeaderDetector
+from piply_opdf.detectors.footer_detector import FooterDetector
 
 logger = logging.getLogger(__name__)
 
@@ -173,10 +176,12 @@ class Document:
     def process_layout(self, use_enhanced: bool = True) -> list[TableModel]:
         """
         Runs the new modular table and grid extraction engine.
+        Follows Priority Order: P1 (Tables), P2 (Borderless), P3 (Headers), P4 (Footers).
         """
         source = self._resolve_source(use_enhanced)
         self.tables = []
         
+        # P1
         table_detector = TableDetector()
         col_detector = ColumnDetector()
         row_detector = RowDetector()
@@ -186,6 +191,11 @@ class Document:
         metadata_manager = MetadataManager()
         visualizer = DebugVisualizer()
         
+        # P2, P3, P4
+        borderless_detector = BorderlessTableDetector()
+        header_detector = HeaderDetector()
+        footer_detector = FooterDetector()
+        
         out_dir = self.work_dir / "layouts"
         debug_dir = self.work_dir / "debug"
         
@@ -193,10 +203,15 @@ class Document:
         previous_table_cols = None
         previous_table_id = None
         
+        # Also store other components for metadata saving later
+        self.borderless_tables = []
+        self.headers = []
+        self.footers = []
+        
         for page_idx, img in iter_pages(source, dpi=300):
             page_num = page_idx + 1
             
-            # 1. Detect Tables
+            # --- STAGE 1: Structured Table Detection (P1) ---
             table_boxes = table_detector.detect_tables(img)
             
             for i, t_box in enumerate(table_boxes):
@@ -251,6 +266,76 @@ class Document:
             if not table_boxes:
                 previous_table_cols = None
                 previous_table_id = None
+                
+            # --- STAGE 2: Borderless Table Detection (P2) ---
+            borderless = borderless_detector.detect_tables(str(self.source_path), page_num, table_boxes)
+            self.borderless_tables.extend(borderless)
+            
+            import cv2
+            for b in borderless:
+                tx, ty, tw, th = b.bbox
+                ih, iw = img.shape[:2]
+                ty1, ty2 = max(0, ty), min(ih, ty + th)
+                tx1, tx2 = max(0, tx), min(iw, tx + tw)
+                if tx2 > tx1 and ty2 > ty1:
+                    b_img = img[ty1:ty2, tx1:tx2]
+                    b_dir = out_dir / f"page_{page_num}" / b.id
+                    b_dir.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(b_dir / "table.png"), b_img)
+                    
+                    import json
+                    from piply_opdf.models.grid import TableManifest, ColumnManifest
+                    
+                    col_dir = b_dir / "columns"
+                    col_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    for i, (cx, cy, cw, ch) in enumerate(b.columns):
+                        cx1, cx2 = max(0, cx), min(iw, cx + cw)
+                        cy1, cy2 = max(0, cy), min(ih, cy + ch)
+                        if cx2 > cx1 and cy2 > cy1:
+                            col_img = img[cy1:cy2, cx1:cx2]
+                            col_id = f"col_{i:03d}"
+                            cv2.imwrite(str(col_dir / f"{col_id}.png"), col_img)
+                            
+                            c_manifest = ColumnManifest(
+                                column_id=col_id,
+                                parent_table=b.id,
+                                bbox=(cx, cy, cw, ch),
+                                confidence=b.confidence
+                            )
+                            with open(col_dir / f"{col_id}_manifest.json", "w") as f:
+                                json.dump(c_manifest.model_dump(), f, indent=2)
+                    
+                    b_manifest = TableManifest(
+                        table_id=b.id,
+                        page=b.page,
+                        rows=1,
+                        columns=len(b.columns) if b.columns else 1,
+                        bbox=b.bbox,
+                        confidence=b.confidence
+                    )
+                    with open(b_dir / "manifest.json", "w") as f:
+                        json.dump(b_manifest.model_dump(), f, indent=2)
+                        
+            # --- STAGE 3: Header Detection (P3) ---
+            headers = header_detector.detect_headers(str(self.source_path), page_num)
+            self.headers.extend(headers)
+            
+            # --- STAGE 4: Footer Detection (P4) ---
+            footers = footer_detector.detect_footers(str(self.source_path), page_num)
+            self.footers.extend(footers)
+            
+            # Optional: Save P2/P3/P4 metadata to JSON for the page
+            import json
+            page_meta_dir = out_dir / f"page_{page_num}"
+            page_meta_dir.mkdir(parents=True, exist_ok=True)
+            
+            with open(page_meta_dir / "components.json", "w") as f:
+                json.dump({
+                    "borderless_tables": [b.model_dump() for b in borderless],
+                    "headers": headers,
+                    "footers": footers
+                }, f, indent=2)
                 
         return self.tables
 

@@ -73,3 +73,11 @@ class CellManifest(BaseModel):
     column: int
     bbox: Tuple[int, int, int, int]
     confidence: float
+
+class BorderlessTableModel(BaseModel):
+    id: str
+    type: str = "borderless_table"
+    page: int
+    bbox: Tuple[int, int, int, int]
+    columns: List[Tuple[int, int, int, int]] = Field(default_factory=list)
+    confidence: float = 1.0

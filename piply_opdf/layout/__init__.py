@@ -1,4 +1,3 @@
-from .table_detector import TableDetector
 from .column_detector import ColumnDetector
 from .row_detector import RowDetector
 from .grid_builder import GridBuilder
@@ -8,7 +7,6 @@ from .metadata_manager import MetadataManager
 from .debug_visualizer import DebugVisualizer
 
 __all__ = [
-    "TableDetector",
     "ColumnDetector",
     "RowDetector",
     "GridBuilder",

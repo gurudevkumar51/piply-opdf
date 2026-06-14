@@ -23,23 +23,22 @@ class TableDetector:
         )
 
         # Zero out the extreme edges to remove page-level scanning artifacts
-        # Using a conservative 2% margin (e.g., 16 pixels on an 800px wide image)
         MARGIN_X = max(15, int(w * 0.02))
         MARGIN_Y = max(15, int(h * 0.02))
         thresh[:MARGIN_Y, :] = 0
         thresh[-MARGIN_Y:, :] = 0
         thresh[:, :MARGIN_X] = 0
         thresh[:, -MARGIN_X:] = 0
-
+        
         # 2. Extract Horizontal and Vertical Lines
         h_len = max(w // 40, 30)
         v_len = max(h // 40, 30)
         
         h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (h_len, 1))
-        horizontal_mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, h_kernel, iterations=2)
+        horizontal_mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, h_kernel)
         
         v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, v_len))
-        vertical_mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, v_kernel, iterations=2)
+        vertical_mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, v_kernel)
 
         # 3. Merge to Grid Mask
         grid_mask = cv2.bitwise_or(horizontal_mask, vertical_mask)
@@ -63,7 +62,7 @@ class TableDetector:
         
         # 6. Cluster fragments into Unified Tables
         # A fragment belongs to a cluster if it overlaps horizontally and is close vertically
-        MAX_VERTICAL_GAP = h * 0.05  # Max 5% of page height gap between rows
+        MAX_VERTICAL_GAP = h * 0.01  # Max 1% of page height gap between rows
         MIN_HORIZONTAL_OVERLAP = 0.2  # Must share at least 20% horizontal bounds
         
         clusters = []
@@ -147,6 +146,18 @@ class TableDetector:
             # Score
             # Tables tend to have high rectangularity and a reasonable line density.
             table_confidence = (rectangularity * 0.6) + (min(line_density * 10, 1.0) * 0.4)
+            
+            # Ensure it has internal grid structure (not just a single box/logo)
+            # Find intersections between horizontal and vertical masks
+            roi_h = horizontal_mask[y:y+h_c, x:x+w_c]
+            roi_v = vertical_mask[y:y+h_c, x:x+w_c]
+            intersections = cv2.bitwise_and(roi_h, roi_v)
+            inter_contours, _ = cv2.findContours(intersections, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # A simple box has 4 intersections (corners). A table must have at least one internal line (> 4)
+            if len(inter_contours) <= 4:
+                continue
+
             
             # Allow sparse table fragments by dropping confidence threshold to 0.50
             if table_confidence >= 0.50:
