@@ -1,13 +1,16 @@
 from typing import List, Dict
 from piply_opdf.models.grid import TableModel, ColumnModel, RowModel, CellModel, GridBoundingBox
 
+import cv2
+import numpy as np
+
 class GridBuilder:
     """Assembles the final TableModel using Consensus Row Detection."""
     
-    def __init__(self, consensus_threshold: float = 0.75):
+    def __init__(self, consensus_threshold: float = 0.5):
         self.consensus_threshold = consensus_threshold
         
-    def build_grid(self, table_id: str, table_bbox: GridBoundingBox, page_num: int, columns: List[ColumnModel], row_candidates: Dict[str, List[int]]) -> TableModel:
+    def build_grid(self, image: np.ndarray, table_id: str, table_bbox: GridBoundingBox, page_num: int, columns: List[ColumnModel], row_candidates: Dict[str, List[int]]) -> TableModel:
         """
         Builds the grid structure using consensus voting for row dividers.
         """
@@ -48,10 +51,18 @@ class GridBuilder:
                 consensus_dividers.append(avg_d)
                 
         # Make sure 0 and th are present
-        if not consensus_dividers or consensus_dividers[0] > 15:
-            consensus_dividers.insert(0, 0)
-        if consensus_dividers[-1] < th - 15:
-            consensus_dividers.append(th)
+        if not consensus_dividers:
+            consensus_dividers = [0, th]
+        else:
+            if consensus_dividers[0] > 25:
+                consensus_dividers.insert(0, 0)
+            else:
+                consensus_dividers[0] = 0
+                
+            if consensus_dividers[-1] < th - 25:
+                consensus_dividers.append(th)
+            else:
+                consensus_dividers[-1] = th
             
         # Ensure strict monotonicity and fix top/bottom perfectly
         consensus_dividers[0] = 0
@@ -60,8 +71,12 @@ class GridBuilder:
         # Clean up any that are too close after consensus
         final_dividers = [consensus_dividers[0]]
         for d in consensus_dividers[1:]:
-            if d - final_dividers[-1] > 10:
+            if d - final_dividers[-1] > 35:
                 final_dividers.append(d)
+        
+        # Ensure last divider is th
+        if final_dividers[-1] != th:
+            final_dividers[-1] = th
                 
         # Create RowModels
         rows = []
@@ -70,8 +85,16 @@ class GridBuilder:
         
         for i in range(len(final_dividers) - 1):
             y1, y2 = final_dividers[i], final_dividers[i+1]
-            if y2 - y1 > 10:
-                row_bbox = GridBoundingBox(x=tx, y=ty + y1, width=tw, height=y2 - y1)
+            h = y2 - y1
+            if h > 35:
+                # Top margin artifact: first row is usually empty space if < 60px
+                if len(rows) == 0 and h < 60:
+                    continue
+                # Bottom margin artifact: last row is usually empty space if < 60px
+                if i == len(final_dividers) - 2 and h < 60:
+                    continue
+                    
+                row_bbox = GridBoundingBox(x=tx, y=ty + y1, width=tw, height=h)
                 rows.append(RowModel(
                     row_id=f"{table_id}_row_{row_idx}",
                     parent_table=table_id,
