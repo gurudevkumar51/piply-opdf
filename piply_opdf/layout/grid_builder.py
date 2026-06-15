@@ -83,25 +83,39 @@ class GridBuilder:
         row_idx = 0
         tx, ty, tw, _ = table_bbox.to_tuple()
         
+        last_y = final_dividers[0]
+        
         for i in range(len(final_dividers) - 1):
             y1, y2 = final_dividers[i], final_dividers[i+1]
             h = y2 - y1
-            if h > 35:
-                # Top margin artifact: first row is usually empty space if < 60px
-                if len(rows) == 0 and h < 60:
-                    continue
-                # Bottom margin artifact: last row is usually empty space if < 60px
-                if i == len(final_dividers) - 2 and h < 60:
-                    continue
-                    
-                row_bbox = GridBoundingBox(x=tx, y=ty + y1, width=tw, height=h)
-                rows.append(RowModel(
-                    row_id=f"{table_id}_row_{row_idx}",
-                    parent_table=table_id,
-                    row_index=row_idx,
-                    bbox=row_bbox
-                ))
-                row_idx += 1
+            
+            is_artifact = False
+            if h <= 35:
+                is_artifact = True
+            elif len(rows) == 0 and h < 60:
+                is_artifact = True
+            elif i == len(final_dividers) - 2 and h < 60:
+                is_artifact = True
+                
+            if is_artifact:
+                if i == len(final_dividers) - 2 and rows:
+                    rows[-1].bbox = GridBoundingBox(
+                        x=rows[-1].bbox.x,
+                        y=rows[-1].bbox.y,
+                        width=rows[-1].bbox.width,
+                        height=rows[-1].bbox.height + h
+                    )
+                continue
+                
+            row_bbox = GridBoundingBox(x=tx, y=ty + last_y, width=tw, height=y2 - last_y)
+            rows.append(RowModel(
+                row_id=f"{table_id}_row_{row_idx}",
+                parent_table=table_id,
+                row_index=row_idx,
+                bbox=row_bbox
+            ))
+            row_idx += 1
+            last_y = y2
                 
         # Create CellModels
         cells = []
