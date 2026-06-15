@@ -94,7 +94,7 @@ class GridBuilder:
                 is_artifact = True
             elif len(rows) == 0 and h < 60:
                 is_artifact = True
-            elif i == len(final_dividers) - 2 and h < 60:
+            elif i == len(final_dividers) - 2 and h <= 35:
                 is_artifact = True
                 
             if is_artifact:

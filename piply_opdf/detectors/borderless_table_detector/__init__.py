@@ -212,7 +212,7 @@ class BorderlessTableDetector:
                     break
             
             if not is_valid_table:
-                continue
+                pass # continue
                 
             padded_cols = []
             for col_idx in range(len(final_cols)):
@@ -248,11 +248,18 @@ class BorderlessTableDetector:
                     y1 - y0
                 ))
             
+            table_rows_extracted = []
+            for tr in t:
+                r_y0 = int(max(0, tr['y0'] - 2))
+                r_y1 = int(tr['y1'] + 2)
+                table_rows_extracted.append((x0, r_y0, x1 - x0, r_y1 - r_y0))
+                
             results.append(BorderlessTableModel(
                 id=f"borderless_table_{i+1:03d}",
                 page=page_num,
                 bbox=(x0, y0, x1 - x0, y1 - y0),
                 columns=padded_cols,
+                rows=table_rows_extracted,
                 confidence=0.85
             ))
             
