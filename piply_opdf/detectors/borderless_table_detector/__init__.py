@@ -88,7 +88,7 @@ class BorderlessTableDetector:
             if current_col:
                 cols.append(current_col)
                 
-            if len(cols) >= 3:
+            if len(cols) >= 2:
                 min_y = min(b[1] for b in r)
                 max_y = max(b[3] for b in r)
                 min_x = min(b[0] for b in r)
@@ -112,7 +112,7 @@ class BorderlessTableDetector:
         # 4. Group consecutive table rows into Borderless Tables
         tables = []
         current_table = []
-        max_row_gap = 150 # Max vertical gap between rows in a table
+        max_row_gap = 80 # Max vertical gap between rows in a table
         
         for tr in table_rows:
             if not current_table:
