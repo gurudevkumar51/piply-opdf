@@ -240,7 +240,7 @@ class Document:
                 row_cands = row_detector.detect_row_candidates(img, cols)
                 
                 # 4. Build Grid
-                table_model = grid_builder.build_grid(t_id, t_box, page_num, cols, row_cands)
+                table_model = grid_builder.build_grid(img, t_id, t_box, page_num, cols, row_cands)
                 
                 # 5. Validate Grid
                 table_model = validator.validate(img, table_model)
@@ -284,9 +284,12 @@ class Document:
                     cv2.imwrite(str(b_dir / "table.png"), b_img)
                     
                     import json
-                    from piply_opdf.models.grid import TableManifest, ColumnManifest
+                    from piply_opdf.models.grid import TableManifest, ColumnManifest, RowManifest
                     
+                    import shutil
                     col_dir = b_dir / "columns"
+                    if col_dir.exists():
+                        shutil.rmtree(col_dir)
                     col_dir.mkdir(parents=True, exist_ok=True)
                     
                     for i, (cx, cy, cw, ch) in enumerate(b.columns):
@@ -305,11 +308,33 @@ class Document:
                             )
                             with open(col_dir / f"{col_id}_manifest.json", "w") as f:
                                 json.dump(c_manifest.model_dump(), f, indent=2)
+                                
+                    row_dir = b_dir / "rows"
+                    if row_dir.exists():
+                        shutil.rmtree(row_dir)
+                    row_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    for i, (rx, ry, rw, rh) in enumerate(b.rows):
+                        rx1, rx2 = max(0, rx), min(iw, rx + rw)
+                        ry1, ry2 = max(0, ry), min(ih, ry + rh)
+                        if rx2 > rx1 and ry2 > ry1:
+                            row_img = img[ry1:ry2, rx1:rx2]
+                            row_id = f"row_{i:03d}"
+                            cv2.imwrite(str(row_dir / f"{row_id}.png"), row_img)
+                            
+                            r_manifest = RowManifest(
+                                row_id=row_id,
+                                parent_table=b.id,
+                                bbox=(rx, ry, rw, rh),
+                                confidence=b.confidence
+                            )
+                            with open(row_dir / f"{row_id}_manifest.json", "w") as f:
+                                json.dump(r_manifest.model_dump(), f, indent=2)
                     
                     b_manifest = TableManifest(
                         table_id=b.id,
                         page=b.page,
-                        rows=1,
+                        rows=len(b.rows) if b.rows else 1,
                         columns=len(b.columns) if b.columns else 1,
                         bbox=b.bbox,
                         confidence=b.confidence

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piply OPDF Review</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .bbox {
+            position: absolute;
+            border: 2px solid rgba(255, 0, 0, 0.7);
+            background-color: rgba(255, 0, 0, 0.2);
+            pointer-events: none;
+            transition: all 0.2s ease;
+        }
+        .bbox.active {
+            border-color: rgba(0, 255, 0, 0.9);
+            background-color: rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 8px rgba(0, 255, 0, 0.6);
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col font-sans overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center z-10">
+        <h1 class="text-xl font-bold text-blue-900 tracking-tight">Piply OPDF</h1>
+        <div class="flex space-x-3 items-center">
+            <a href="/manage" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition mr-4">Manage</a>
+            <select id="doc-selector" class="border border-gray-300 rounded px-3 py-1.5 text-sm max-w-xs focus:outline-none shadow-sm cursor-pointer hover:bg-gray-50" onchange="window.selectDocument(this.value)">
+                <option value="">-- Select Document --</option>
+            </select>
+            <span id="status-badge" class="text-sm font-semibold text-gray-500 mr-2 ml-2 px-3 py-1 rounded-full bg-gray-200">No Document</span>
+            <input type="file" id="file-upload" class="hidden" accept=".pdf,.png,.jpg,.jpeg">
+            <label for="file-upload" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded shadow-sm hover:bg-gray-50 cursor-pointer font-medium transition text-sm">Upload New</label>
+            <button id="process-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow text-sm font-bold transition disabled:opacity-50" disabled>Process Document</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- Document Viewer (60%) -->
+        <section class="w-3/5 bg-gray-200 border-r border-gray-300 flex flex-col relative">
+            
+            <div class="bg-gray-300 p-2 flex justify-between items-center shadow-inner z-10">
+                <div id="zoom-controls" class="flex space-x-2">
+                    <button class="bg-white px-3 py-1 rounded text-sm font-medium shadow hover:bg-gray-50" onclick="zoom(0.1)">Zoom In</button>
+                    <button class="bg-white px-3 py-1 rounded text-sm font-medium shadow hover:bg-gray-50" onclick="zoom(-0.1)">Zoom Out</button>
+                    <button class="bg-white px-3 py-1 rounded text-sm font-medium shadow hover:bg-gray-50" onclick="fitWidth()">Fit Width</button>
+                </div>
+                <div class="flex space-x-2 items-center">
+                    <span class="text-xs font-bold text-gray-600 uppercase">View:</span>
+                    <select id="view-mode" class="bg-white px-2 py-1 text-sm border rounded shadow-sm focus:outline-none" onchange="window.updateViewer()">
+                        <option value="original">Original</option>
+                        <option value="enhanced">Enhanced (Extracted)</option>
+                    </select>
+                    <button class="bg-white px-3 py-1 rounded text-sm font-medium shadow hover:bg-gray-50" onclick="prevPage()">Prev</button>
+                    <span class="text-sm font-bold">Page <span id="current-page">1</span></span>
+                    <button class="bg-white px-3 py-1 rounded text-sm font-medium shadow hover:bg-gray-50" onclick="nextPage()">Next</button>
+                </div>
+            </div>
+
+            <div id="viewer-container" class="flex-1 overflow-auto relative flex justify-center bg-gray-400 p-4">
+                <embed id="original-embed" class="w-full h-full bg-white shadow-lg" type="application/pdf" src="" style="display: none;">
+                
+                <div id="page-wrapper" class="relative inline-block bg-white shadow-lg" style="display: none;">
+                    <div id="scale-wrapper" class="transform origin-top-left transition-transform duration-200">
+                        <img id="document-image" src="" class="block max-w-none" alt="Document Page" style="display: none;">
+                        <div id="bbox-container" class="absolute top-0 left-0 w-full h-full pointer-events-none"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Panel (40%) -->
+        <section class="w-2/5 flex flex-col bg-white overflow-hidden">
+            
+            <!-- Component Explorer -->
+            <div class="flex-1 border-b border-gray-200 flex flex-col overflow-hidden">
+                <div class="bg-gray-50 border-b border-gray-200 flex p-2 space-x-2 overflow-x-auto text-sm font-medium">
+                    <button class="tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap" data-type="TABLE">Tables</button>
+                    <button class="tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap" data-type="BORDERLESS_TABLE">Borderless</button>
+                    <button class="tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap" data-type="ROW">Rows</button>
+                    <button class="tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap" data-type="COLUMN">Columns</button>
+                    <button class="tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap" data-type="CELL">Cells</button>
+                    <button class="tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap" data-type="HEADER">Headers</button>
+                    <button class="tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap" data-type="FOOTER">Footers</button>
+                </div>
+                <div id="component-list" class="flex-1 overflow-y-auto p-4 space-y-2">
+                    <!-- Components will be listed here -->
+                    <div class="text-gray-500 text-sm text-center mt-10">Upload and process a document to view components.</div>
+                </div>
+            </div>
+
+            <!-- OCR Review Panel -->
+            <div class="h-2/5 bg-gray-50 flex flex-col border-t-4 border-blue-200">
+                <div class="bg-blue-100 p-2 flex justify-between items-center">
+                    <h2 class="text-sm font-bold text-blue-900">OCR Review</h2>
+                    <div class="flex space-x-2 text-xs">
+                        <select id="confidence-filter" class="rounded border-gray-300 px-2 py-1">
+                            <option value="100">Show All</option>
+                            <option value="90">Confidence < 90%</option>
+                            <option value="80">Confidence < 80%</option>
+                        </select>
+                        <button class="bg-blue-600 text-white px-2 py-1 rounded shadow hover:bg-blue-700" onclick="acceptHighConfidence()">Accept All > 95%</button>
+                    </div>
+                </div>
+                
+                <div id="ocr-panel" class="flex-1 overflow-y-auto p-4 flex flex-col">
+                    <div class="text-gray-500 text-sm text-center mt-4">Select a component to review OCR.</div>
+                </div>
+            </div>
+            
+        </section>
+    </main>
+
+    <script src="/static/js/main.js?v=6"></script>
+</body>
+</html>

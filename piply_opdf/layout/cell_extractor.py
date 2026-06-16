@@ -26,8 +26,12 @@ class CellExtractor:
             table_img = image[ty1:ty2, tx1:tx2]
             cv2.imwrite(str(table_dir / "table.png"), table_img)
             
+        import shutil
+        
         # 2. Save Column Images
         cols_dir = table_dir / "columns"
+        if cols_dir.exists():
+            shutil.rmtree(cols_dir)
         cols_dir.mkdir(parents=True, exist_ok=True)
         for col in table.columns:
             cx, cy, cw, ch = col.bbox.to_tuple()
@@ -37,7 +41,20 @@ class CellExtractor:
                 col_img = image[cy1:cy2, cx1:cx2]
                 cv2.imwrite(str(cols_dir / f"{col.column_id}.png"), col_img)
                 
-        # 3. Save Cell Images
+        # 3. Save Row Images
+        rows_dir = table_dir / "rows"
+        if rows_dir.exists():
+            shutil.rmtree(rows_dir)
+        rows_dir.mkdir(parents=True, exist_ok=True)
+        for row in table.rows:
+            rx, ry, rw, rh = row.bbox.to_tuple()
+            ry1, ry2 = max(0, ry), min(ih, ry + rh)
+            rx1, rx2 = max(0, rx), min(iw, rx + rw)
+            if rx2 > rx1 and ry2 > ry1:
+                row_img = image[ry1:ry2, rx1:rx2]
+                cv2.imwrite(str(rows_dir / f"{row.row_id}.png"), row_img)
+                
+        # 4. Save Cell Images
         cells_dir = table_dir / "cells"
         cells_dir.mkdir(parents=True, exist_ok=True)
         

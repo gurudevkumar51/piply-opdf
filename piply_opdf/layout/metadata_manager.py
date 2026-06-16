@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from piply_opdf.models.grid import TableModel, TableManifest, ColumnManifest, CellManifest
+from piply_opdf.models.grid import TableModel, TableManifest, ColumnManifest, RowManifest, CellManifest
 
 class MetadataManager:
     """Generates and saves JSON manifests for the grid structure."""
@@ -38,6 +38,20 @@ class MetadataManager:
             ).model_dump())
         with open(cols_dir / "manifest.json", "w") as f:
             json.dump(cols_manifests, f, indent=2)
+            
+        # Rows Manifest
+        rows_dir = table_dir / "rows"
+        rows_dir.mkdir(parents=True, exist_ok=True)
+        rows_manifests = []
+        for row in table.rows:
+            rows_manifests.append(RowManifest(
+                row_id=row.row_id,
+                parent_table=table.table_id,
+                bbox=row.bbox.to_tuple(),
+                confidence=row.confidence
+            ).model_dump())
+        with open(rows_dir / "manifest.json", "w") as f:
+            json.dump(rows_manifests, f, indent=2)
             
         # Cells Manifest
         cells_dir = table_dir / "cells"
