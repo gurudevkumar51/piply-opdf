@@ -23,32 +23,36 @@ class RowDetector:
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 4
         )
         
+        # Use morphological operations to explicitly isolate horizontal lines
+        h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+        h_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, h_kernel)
+        
         candidates = {}
         for col in columns:
             cx, cy, cw, ch = col.bbox.to_tuple()
-            roi_thresh = thresh[cy:cy+ch, cx:cx+cw]
+            roi_h = h_lines[cy:cy+ch, cx:cx+cw]
             
-            # Compute full horizontal projection (text + borders)
-            h_proj = np.sum(roi_thresh / 255.0, axis=1)
+            # Compute horizontal projection of purely the horizontal lines
+            h_proj = np.sum(roi_h / 255.0, axis=1)
             
             row_dividers = [0]
-            in_blank = True
-            start_blank = 0
+            in_line = False
+            start_line = 0
             
             for i in range(len(h_proj)):
-                # If there are very few pixels, we are in a blank row divider area
-                if h_proj[i] < cw * 0.05:
-                    if not in_blank:
-                        in_blank = True
-                        start_blank = i
+                # If there are enough pixels, it's a physical horizontal line
+                if h_proj[i] > max(5, cw * 0.05):
+                    if not in_line:
+                        in_line = True
+                        start_line = i
                 else:
-                    if in_blank:
-                        in_blank = False
-                        # The divider is the middle of the blank space
-                        row_dividers.append((start_blank + i) // 2)
+                    if in_line:
+                        in_line = False
+                        # The divider is the middle of the line thickness
+                        row_dividers.append((start_line + i) // 2)
                         
-            if in_blank:
-                row_dividers.append((start_blank + len(h_proj)) // 2)
+            if in_line:
+                row_dividers.append((start_line + len(h_proj)) // 2)
             row_dividers.append(ch)
             
             # Clean dividers
