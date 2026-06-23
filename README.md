@@ -67,6 +67,39 @@ print(f"OCR confidence: {ocr_result.mean_confidence:.1%}")
 
 ---
 
+## Architecture Flow
+
+```mermaid
+flowchart TD
+    A[Document PDF/Image] --> B[Phase 1: Assessment]
+    B --> C[Phase 2: Enhancement]
+    C --> D[Phase 3: Layout Detection]
+    
+    subgraph Detectors
+        D1[Table]
+        D2[Paragraph]
+        D3[Header/Footer]
+    end
+    D -.-> Detectors
+    
+    D --> E[Phase 4: Extraction & Segmentation]
+    E --> F[Phase 5: Smart OCR Pipeline]
+    
+    subgraph Smart OCR Pipeline
+        F1{Knowledge Base Match?}
+        F1 -- Yes --> F2[Return Verified Text]
+        F1 -- No --> F3[Scale & Pad Image]
+        F3 --> F4[PaddleOCR Engine]
+    end
+    F -.-> F1
+    
+    F --> G[Human Review UI]
+    G -- Feedback --> H[(OCR Knowledge Base)]
+    H -.-> F1
+```
+
+---
+
 ## CLI
 
 ```bash
@@ -78,7 +111,7 @@ piply-opdf ocr invoice.pdf             # Phase 5 — OCR regions
 piply-opdf run invoice.pdf             # All phases in sequence
 ```
 
-Each command writes output to `invoice_piply/` alongside the source file.
+Each command writes output to `invoice_piply/` alongside the source file. The knowledge base is synced automatically if using the FastAPI server.
 
 ---
 

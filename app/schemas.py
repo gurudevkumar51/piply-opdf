@@ -17,6 +17,14 @@ class OCRFeedbackBase(BaseModel):
     user_value: str
     is_accepted: bool
 
+class OCRFeedbackResponse(OCRFeedbackBase):
+    id: int
+    prediction_id: int
+    reviewed_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class OCRPredictionBase(BaseModel):
     predicted_text: str
     confidence: float
@@ -25,7 +33,7 @@ class OCRPredictionResponse(OCRPredictionBase):
     id: int
     component_id: int
     created_at: datetime
-    feedback: List[Any] = []
+    feedback: List[OCRFeedbackResponse] = []
 
     class Config:
         from_attributes = True

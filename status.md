@@ -1,18 +1,19 @@
 # Piply OPDF - Status
 
 ## Current Goal
-Implement the modular architecture for layout detection, strictly following the Priority Order. Develop the `BorderlessTableDetector` as a standalone module leveraging PyMuPDF and OpenCV, and test it against `sample5.pdf`.
+Evolve the platform from a standard OCR pipeline into a Self-Learning Document Intelligence Framework based on the 5-Layer Knowledge First Strategy. Create the interface-driven, modular architecture where features can be developed independently without breaking stable logic.
 
 ## Active Tasks
-- [x] Create `technical_architecture.md` and `status.md`
-- [ ] Establish `detectors/` folder structure (`table_detector`, `borderless_table_detector`, `header_detector`, `footer_detector`).
-- [ ] Migrate existing OpenCV-based bordered table detection into `detectors/table_detector/`.
-- [ ] Implement `borderless_table_detector` using text blocks (PyMuPDF) and OpenCV projection profiling.
-- [ ] Hook up detectors in `document.py` execution pipeline according to P1 -> P2 -> P3 -> P4 priority.
-- [ ] Implement CLI commands (`detect-tables`, `detect-borderless-tables`, etc.).
+- `[x]` Establish the foundational Vision and Documentation (Wiki & AI contexts).
+- `[x]` Clean up old monolithic tests, scratch scripts, and legacy documentation from the root directory.
+- `[x]` Build the Base Interfaces (`ILayoutDetector`, `IKnowledgeMatcher`, etc.) following SOLID principles in `piply_opdf/core/`.
+- `[x]` Create placeholders for the 15 Core Modules inside `piply_opdf/modules/`.
+- `[ ]` Migrate existing Document execution logic into the `DocumentProcessor` and `LayoutExtractor` modules.
+- `[ ]` Begin development on **Level 2: Similarity Learning** and **Feature Extraction**.
 
 ## Known Issues / Blockers
-- None at this time.
+- None. Stable Table & Borderless Table extraction remains active and unchanged while new modules are structured around them.
 
 ## Recent Changes
-- User reverted the previous monolithic `TableDetector` logic. We are transitioning to a highly independent, metadata-first plugin architecture for each layout component.
+- Overhauled the architecture plan to introduce the 5-Layer Knowledge Strategy, Human Feedback loops, and strict OOP Module separation.
+- Purged outdated debug scripts from the root directory to maintain a clean structure.
