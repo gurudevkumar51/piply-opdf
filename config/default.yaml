@@ -1,6 +1,11 @@
 # Default configuration for piply-opdf
 # All values can be overridden by passing a custom YAML config file.
 
+# ─── Global Environment ──────────────────────────────────────────────────────
+environment:
+  # Directory where uploaded files and processing outputs will be saved
+  upload_dir: "uploads"
+
 # ─── Phase 1: Document Assessment ────────────────────────────────────────────
 assessment:
   # Laplacian variance below this = image is considered blurry

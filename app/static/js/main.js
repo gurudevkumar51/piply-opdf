@@ -33,8 +33,17 @@ async function loadDocuments() {
     }
 }
 
+window.downloadManifest = function() {
+    if (!currentDocumentId) return;
+    window.open(`/download-manifest/${currentDocumentId}`, '_blank');
+};
+
 window.selectDocument = async function(docId) {
     if (!docId) return;
+    
+    const dlBtn = document.getElementById('download-manifest-btn');
+    if (dlBtn) dlBtn.classList.remove('hidden');
+
     try {
         const res = await fetch(`/documents/${docId}`);
         const doc = await res.json();
@@ -288,10 +297,18 @@ function renderComponentList(type) {
     }
 
     filtered.forEach(c => {
+        let displayTitle = `${c.component_type} ${c.id}`;
+        if (c.component_type === 'CELL' && c.manifest_path) {
+            const match = c.manifest_path.match(/_r(\d+)_c(\d+)\.png$/);
+            if (match) {
+                displayTitle = `CELL ${match[1]}-${match[2]}`;
+            }
+        }
+
         const div = document.createElement('div');
         div.className = "p-3 border border-gray-200 rounded hover:bg-blue-50 cursor-pointer transition";
         div.innerHTML = `
-            <div class="font-semibold text-sm text-gray-800">${c.component_type} ${c.id}</div>
+            <div class="font-semibold text-sm text-gray-800">${displayTitle}</div>
             <div class="text-xs text-gray-500 mt-1">Page: ${c.page_no} | Conf: ${(c.confidence * 100).toFixed(1)}%</div>
         `;
         div.addEventListener('click', () => {
@@ -426,7 +443,7 @@ async function runOcrOnCell(componentId) {
     try {
         const res = await fetch(`/ocr-cell/${componentId}`, { method: 'POST' });
         const data = await res.json();
-        if (res.ok && data.text) {
+        if (res.ok && data.text !== undefined) {
             // Reload components to get updated predictions
             const docId = document.getElementById('doc-selector').value;
             if (docId) {

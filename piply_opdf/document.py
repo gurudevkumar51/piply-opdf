@@ -44,10 +44,10 @@ from piply_opdf.layout import (
     MetadataManager,
     DebugVisualizer
 )
-from piply_opdf.detectors.table_detector import TableDetector
-from piply_opdf.detectors.borderless_table_detector import BorderlessTableDetector
-from piply_opdf.detectors.header_detector import HeaderDetector
-from piply_opdf.detectors.footer_detector import FooterDetector
+from piply_opdf.detectors.table import TableDetector
+from piply_opdf.detectors.borderless_table import BorderlessTableDetector
+from piply_opdf.detectors.header import HeaderDetector
+from piply_opdf.detectors.footer import FooterDetector
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +362,29 @@ class Document:
                     "footers": footers
                 }, f, indent=2)
                 
+        self.generate_master_manifest()
         return self.tables
+
+    def generate_master_manifest(self, output_path: str | Path | None = None) -> Path:
+        """
+        Generates a master_manifest.json representation of all detected components
+        (tables, borderless tables, headers, footers).
+        """
+        import json
+        out = Path(output_path) if output_path else self.work_dir / "master_manifest.json"
+        
+        manifest = {
+            "document_path": str(self.source_path),
+            "tables": [t.model_dump() if hasattr(t, 'model_dump') else t for t in self.tables],
+            "borderless_tables": [bt.model_dump() if hasattr(bt, 'model_dump') else bt for bt in self.borderless_tables],
+            "headers": [h.model_dump() if hasattr(h, 'model_dump') else h for h in self.headers],
+            "footers": [f.model_dump() if hasattr(f, 'model_dump') else f for f in self.footers]
+        }
+        
+        with open(out, 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, indent=2, default=str)
+            
+        return out
 
 
 

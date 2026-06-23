@@ -27,10 +27,19 @@
     <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center z-10">
         <h1 class="text-xl font-bold text-blue-900 tracking-tight">Piply OPDF</h1>
         <div class="flex space-x-3 items-center">
-            <a href="/manage" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition mr-4">Manage</a>
+            <div class="flex space-x-4 border-r border-gray-300 pr-4 mr-2">
+                <a href="/manage" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Manage</a>
+                <a href="/review" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">OCR Review</a>
+                <a href="/reconstruct" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Reconstruct</a>
+            </div>
             <select id="doc-selector" class="border border-gray-300 rounded px-3 py-1.5 text-sm max-w-xs focus:outline-none shadow-sm cursor-pointer hover:bg-gray-50" onchange="window.selectDocument(this.value)">
                 <option value="">-- Select Document --</option>
             </select>
+            <button id="download-manifest-btn" onclick="downloadManifest()" class="hidden text-gray-500 hover:text-blue-600 transition" title="Download Master Manifest">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+            </button>
             <span id="status-badge" class="text-sm font-semibold text-gray-500 mr-2 ml-2 px-3 py-1 rounded-full bg-gray-200">No Document</span>
             <input type="file" id="file-upload" class="hidden" accept=".pdf,.png,.jpg,.jpeg">
             <label for="file-upload" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded shadow-sm hover:bg-gray-50 cursor-pointer font-medium transition text-sm">Upload New</label>

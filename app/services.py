@@ -1,57 +1,21 @@
 import os
 import json
 import traceback
-import imagehash
-from PIL import Image
-import cv2
-import numpy as np
+import threading
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import scoped_session, sessionmaker
 from pathlib import Path
 import fitz
 
 from . import models, database
+from piply_opdf.config import Config
 
-def compute_image_features(image_path: str):
-    if not os.path.exists(image_path):
-        return None
-    try:
-        pil_img = Image.open(image_path)
-        # Compute hashes
-        phash = str(imagehash.phash(pil_img))
-        dhash = str(imagehash.dhash(pil_img))
-        ahash = str(imagehash.average_hash(pil_img))
-        
-        # Compute OpenCV features
-        cv_img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-        if cv_img is None:
-            return None
-            
-        height, width = cv_img.shape
-        aspect_ratio = float(width) / float(height) if height > 0 else 0.0
-        
-        # Edge density
-        edges = cv2.Canny(cv_img, 100, 200)
-        edge_density = float(np.sum(edges > 0)) / (width * height) if width * height > 0 else 0.0
-        
-        # Histogram features (simplistic 16 bin)
-        hist = cv2.calcHist([cv_img], [0], None, [16], [0, 256])
-        hist = cv2.normalize(hist, hist).flatten()
-        hist_list = hist.tolist()
-        
-        return {
-            "phash": phash,
-            "dhash": dhash,
-            "ahash": ahash,
-            "width": width,
-            "height": height,
-            "aspect_ratio": aspect_ratio,
-            "edge_density": edge_density,
-            "histogram_features": json.dumps(hist_list)
-        }
-    except Exception as e:
-        print(f"Failed to extract features for {image_path}: {e}")
-        return None
+config = Config()
+UPLOAD_DIR = config.get("environment.upload_dir", "uploads")
+
+from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
+
+_feature_extractor = DefaultFeatureExtractor()
 
 def extract_pdf_pages(file_path: str, output_dir: str):
     try:
@@ -80,7 +44,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
 
     try:
         from piply_opdf.document import Document
-        file_path = os.path.join("uploads", filename)
+        file_path = os.path.join(UPLOAD_DIR, filename)
         
         # Run Piply pipeline
         piply_doc = Document(file_path)
@@ -150,25 +114,15 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
             # If there is an image, extract features and possibly OCR
             img_path = manifest.get('image_path')
             if img_path and os.path.exists(img_path):
-                features = compute_image_features(img_path)
-                if features:
+                try:
+                    features = _feature_extractor.extract_features(img_path)
                     db_feat = models.ImageFeature(
                         component_id=db_comp.id,
                         **features
                     )
                     db.add(db_feat)
-                
-                # 3-Layer OCR for Cells
-                if comp_type.upper() == "CELL":
-                    from . import ocr_service
-                    ocr_res = ocr_service.extract_cell_text(img_path, db)
-                    if ocr_res and ocr_res.text:
-                        db_pred = models.OCRPrediction(
-                            component_id=db_comp.id,
-                            predicted_text=ocr_res.text,
-                            confidence=ocr_res.confidence
-                        )
-                        db.add(db_pred)
+                except Exception as e:
+                    print(f"Feature extraction failed: {e}")
             
             return db_comp.id
 
@@ -227,8 +181,17 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
             page_num = getattr(f, 'page', getattr(f, 'page_number', 1))
             insert_component({"bbox": f.bbox, "text": getattr(f, 'text', ''), "confidence": getattr(f, 'confidence', 1.0)}, "FOOTER", page_num)
 
+        db.commit()
+        
+        # 5. Export OCR Manifest (Initial pass without OCR, later gets updated)
+        export_ocr_manifest(document_id, db)
+
         doc_record.status = "completed"
         db.commit()
+        
+        # 6. Start OCR in background thread
+        threading.Thread(target=run_ocr_on_cells, args=(document_id,)).start()
+        
     except Exception as e:
         traceback.print_exc()
         doc_record.status = "error"
@@ -236,37 +199,106 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
     finally:
         db.close()
 
-def run_ocr_on_cells(document_id: int, db):
+def run_ocr_on_cells(document_id: int):
     """Run 3-Layer OCR on all CELL components of a document."""
     from . import ocr_service
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=database.engine)
+    db = SessionLocal()
     
-    cells = db.query(models.Component).filter(
-        models.Component.document_id == document_id,
-        models.Component.component_type == "CELL"
+    try:
+    
+        cells = db.query(models.Component).filter(
+            models.Component.document_id == document_id,
+            models.Component.component_type == "CELL"
+        ).all()
+        
+        for cell in cells:
+            if not cell.manifest_path or not os.path.exists(cell.manifest_path):
+                continue
+            
+            # Skip if already has a prediction
+            existing = db.query(models.OCRPrediction).filter(
+                models.OCRPrediction.component_id == cell.id
+            ).first()
+            if existing:
+                continue
+                
+            try:
+                ocr_res = ocr_service.extract_cell_text(cell.manifest_path, db)
+                if ocr_res is not None:
+                    db_pred = models.OCRPrediction(
+                        component_id=cell.id,
+                        predicted_text=ocr_res.text,
+                        confidence=ocr_res.confidence
+                    )
+                    db.add(db_pred)
+                    db.commit()
+            except Exception as e:
+                print(f"OCR failed for cell {cell.id}: {e}")
+                db.rollback()
+    finally:
+        db.close()
+
+def export_ocr_manifest(document_id: int, db: Session):
+    doc_record = db.query(models.Document).filter(models.Document.id == document_id).first()
+    if not doc_record:
+        return None
+        
+    filename = doc_record.filename
+    base_name = filename.rsplit('.', 1)[0]
+    work_dir = os.path.join("uploads", f"{base_name}_piply")
+    os.makedirs(work_dir, exist_ok=True)
+    
+    components = db.query(models.Component).filter(models.Component.document_id == document_id).all()
+    
+    # We also need OCR predictions to include in the master manifest
+    preds = db.query(models.OCRPrediction).filter(
+        models.OCRPrediction.component_id.in_([c.id for c in components])
     ).all()
     
-    for cell in cells:
-        if not cell.manifest_path or not os.path.exists(cell.manifest_path):
-            continue
+    pred_dict = {p.component_id: {
+        "text": p.predicted_text,
+        "confidence": p.confidence
+    } for p in preds}
+
+    manifest = {
+        "document_id": document_id,
+        "filename": filename,
+        "tables": [],
+        "borderless_tables": [],
+        "headers": [],
+        "footers": []
+    }
+    
+    comp_dict = {c.id: {
+        "id": c.id,
+        "type": c.component_type,
+        "page": c.page_no,
+        "bbox": json.loads(c.bbox) if c.bbox else None,
+        "manifest_path": c.manifest_path,
+        "ocr": pred_dict.get(c.id),
+        "children": []
+    } for c in components}
+    
+    # Group children
+    for c in components:
+        if c.parent_id and c.parent_id in comp_dict:
+            comp_dict[c.parent_id]["children"].append(comp_dict[c.id])
+            
+    # Organize root elements
+    for c in components:
+        if c.parent_id is None:
+            if c.component_type == "TABLE":
+                manifest["tables"].append(comp_dict[c.id])
+            elif c.component_type == "BORDERLESS_TABLE":
+                manifest["borderless_tables"].append(comp_dict[c.id])
+            elif c.component_type == "HEADER":
+                manifest["headers"].append(comp_dict[c.id])
+            elif c.component_type == "FOOTER":
+                manifest["footers"].append(comp_dict[c.id])
+                
+    master_manifest_path = os.path.join(work_dir, "master_manifest.json")
+    with open(master_manifest_path, 'w', encoding='utf-8') as f:
+        json.dump(manifest, f, indent=2)
         
-        # Skip if already has a prediction
-        existing = db.query(models.OCRPrediction).filter(
-            models.OCRPrediction.component_id == cell.id
-        ).first()
-        if existing:
-            continue
-            
-        try:
-            ocr_res = ocr_service.extract_cell_text(cell.manifest_path, db)
-            if ocr_res and ocr_res.text:
-                db_pred = models.OCRPrediction(
-                    component_id=cell.id,
-                    predicted_text=ocr_res.text,
-                    confidence=ocr_res.confidence
-                )
-                db.add(db_pred)
-                db.flush()
-        except Exception as e:
-            print(f"OCR failed for cell {cell.id}: {e}")
-            
-    db.commit()
+    return master_manifest_path
