@@ -284,7 +284,7 @@ class Document:
                     cv2.imwrite(str(b_dir / "table.png"), b_img)
                     
                     import json
-                    from piply_opdf.models.grid import TableManifest, ColumnManifest, RowManifest
+                    from piply_opdf.models.grid import TableManifest, ColumnManifest, RowManifest, CellManifest
                     
                     import shutil
                     col_dir = b_dir / "columns"
@@ -330,6 +330,55 @@ class Document:
                             )
                             with open(row_dir / f"{row_id}_manifest.json", "w") as f:
                                 json.dump(r_manifest.model_dump(), f, indent=2)
+
+                    cell_dir = b_dir / "cells"
+                    if cell_dir.exists():
+                        shutil.rmtree(cell_dir)
+                    cell_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    b.cells = []
+                    for r_idx, (rx, ry, rw, rh) in enumerate(b.rows):
+                        for c_idx, (cx, cy, cw, ch) in enumerate(b.columns):
+                            # Intersection
+                            if hasattr(b, 'type') and b.type == "table":
+                                # Shrink the bounding box slightly to avoid capturing the table grid lines!
+                                # Capturing grid lines causes PaddleOCR to hallucinate '7', 'J', 'l', etc.
+                                x1 = max(rx, cx) + 3
+                                x2 = min(rx + rw, cx + cw) - 3
+                                y1 = ry + 3
+                                y2 = ry + rh - 3
+                            else:
+                                x1 = cx - 5
+                                x2 = cx + cw + 5
+                                if c_idx == 0:
+                                    # Generous padding to account for PyMuPDF vs pdf2image CropBox differences
+                                    x1 = min(rx, cx) - 150
+                                if c_idx == len(b.columns) - 1:
+                                    x2 = max(rx + rw, cx + cw) + 150
+                                y1 = ry
+                                y2 = ry + rh
+                            
+                            if x2 > x1 and y2 > y1:
+                                rx1_crop, rx2_crop = max(0, x1), min(iw, x2)
+                                ry1_crop, ry2_crop = max(0, y1), min(ih, y2)
+                                
+                                cell_img = img[ry1_crop:ry2_crop, rx1_crop:rx2_crop]
+                                cell_id = f"{b.id}_r{r_idx}_c{c_idx}"
+                                cv2.imwrite(str(cell_dir / f"{cell_id}.png"), cell_img)
+                                
+                                c_manifest = CellManifest(
+                                    cell_id=cell_id,
+                                    parent_table=b.id,
+                                    parent_column=f"col_{c_idx:03d}",
+                                    row=r_idx,
+                                    column=c_idx,
+                                    bbox=(x1, y1, x2 - x1, y2 - y1),
+                                    confidence=b.confidence
+                                )
+                                with open(cell_dir / f"{cell_id}_manifest.json", "w") as f:
+                                    json.dump(c_manifest.model_dump(), f, indent=2)
+                                
+                                b.cells.append(c_manifest)
                     
                     b_manifest = TableManifest(
                         table_id=b.id,

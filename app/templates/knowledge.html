@@ -4,28 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piply OPDF - Knowledge Base</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/js/tailwind.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col font-sans">
-    <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
-        <h1 class="text-2xl font-bold text-blue-900 tracking-tight flex items-center">
-            <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
-            Knowledge Base
+    <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center z-10">
+        <h1 class="text-xl font-bold text-blue-900 tracking-tight flex items-center">
+            Piply OPDF
         </h1>
         <div class="flex space-x-3 items-center">
-            <a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition mr-4">Dashboard</a>
-            <a href="/review" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition">Review UI</a>
+            <div class="flex space-x-4 border-r border-gray-300 pr-4 mr-2">
+                <a href="/" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Dashboard</a>
+                <a href="/manage" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Manage</a>
+                <a href="/review" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">OCR Review</a>
+                <a href="/reconstruct" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Reconstruct</a>
+                <a href="/knowledge" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Knowledge Base</a>
+            </div>
         </div>
     </header>
 
     <main class="flex-1 p-6 max-w-7xl mx-auto w-full">
         <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
             <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                <h2 class="text-lg font-semibold text-gray-800">Learned Data</h2>
+                <div class="flex items-center space-x-3">
+                    <h2 class="text-lg font-semibold text-gray-800">Learned Data</h2>
+                    <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded-full" id="kb-count">0 records</span>
+                </div>
                 <div class="flex items-center space-x-4">
+                    <input type="text" id="search-knowledge" placeholder="Search knowledge..." class="border border-gray-300 rounded px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-64" oninput="triggerSearch()">
                     <label class="text-sm font-medium text-gray-700 flex items-center space-x-2">
                         <span>Sort:</span>
-                        <select id="sort-knowledge" class="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none" onchange="renderTable()">
+                        <select id="sort-knowledge" class="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none" onchange="triggerSearch()">
                             <option value="id">ID (Default)</option>
                             <option value="value_asc">Value (A-Z)</option>
                             <option value="value_desc">Value (Z-A)</option>
@@ -53,18 +61,50 @@
                     </tbody>
                 </table>
             </div>
+            
+            <div id="pagination-controls" class="hidden px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                <span id="page-indicator" class="text-sm font-medium text-gray-700"></span>
+                <div class="space-x-2">
+                    <button id="btn-prev-page" class="px-3 py-1 bg-white border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50" onclick="changePage(-1)">Previous</button>
+                    <button id="btn-next-page" class="px-3 py-1 bg-white border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50" onclick="changePage(1)">Next</button>
+                </div>
+            </div>
         </div>
     </main>
 
     <script>
         let kbData = [];
+        let currentPage = 1;
+        const itemsPerPage = 50;
+        let totalItems = 0;
+
+        function changePage(delta) {
+            currentPage += delta;
+            loadKnowledgeBase();
+        }
 
         async function loadKnowledgeBase() {
             const tbody = document.getElementById('kb-tbody');
             tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-10 text-center text-gray-500">Loading...</td></tr>';
+            
+            const searchInput = document.getElementById('search-knowledge');
+            const searchVal = searchInput ? searchInput.value : '';
+            const sortSelect = document.getElementById('sort-knowledge');
+            const sortVal = sortSelect ? sortSelect.value : '';
+            
+            const skip = (currentPage - 1) * itemsPerPage;
+            
             try {
-                const res = await fetch('/api/knowledge');
-                kbData = await res.json();
+                const params = new URLSearchParams({
+                    skip: skip,
+                    limit: itemsPerPage,
+                    search: searchVal,
+                    sort: sortVal
+                });
+                const res = await fetch(`/api/knowledge?${params.toString()}`);
+                const data = await res.json();
+                kbData = data.items || [];
+                totalItems = data.total || 0;
                 renderTable();
             } catch (e) {
                 tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-red-500">Failed to load data</td></tr>`;
@@ -72,26 +112,38 @@
             }
         }
 
+        let searchTimeout = null;
+        function triggerSearch() {
+            if (searchTimeout) clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                loadKnowledgeBase();
+            }, 300);
+        }
+
         function renderTable() {
             const tbody = document.getElementById('kb-tbody');
             if (kbData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-10 text-center text-gray-500 italic">Knowledge Base is currently empty.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-10 text-center text-gray-500 italic">No records found.</td></tr>';
+                const countEl = document.getElementById('kb-count');
+                if (countEl) countEl.textContent = `0 records`;
+                document.getElementById('pagination-controls').classList.add('hidden');
+                document.getElementById('pagination-controls').classList.remove('flex');
                 return;
             }
 
             tbody.innerHTML = '';
             
-            const sortVal = document.getElementById('sort-knowledge') ? document.getElementById('sort-knowledge').value : 'id';
-            let sortedData = [...kbData];
-            if (sortVal === 'value_asc') {
-                sortedData.sort((a, b) => (a.text_value || '').localeCompare(b.text_value || ''));
-            } else if (sortVal === 'value_desc') {
-                sortedData.sort((a, b) => (b.text_value || '').localeCompare(a.text_value || ''));
-            } else {
-                sortedData.sort((a, b) => a.id - b.id);
-            }
+            const countEl = document.getElementById('kb-count');
+            if (countEl) countEl.textContent = `${totalItems} records`;
 
-            sortedData.forEach((item, index) => {
+            const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const fragment = document.createDocumentFragment();
+
+            kbData.forEach((item, index) => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50 transition';
                 
@@ -99,9 +151,7 @@
                     ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 uppercase">Human</span>'
                     : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 uppercase">${item.source}</span>`;
 
-                const imgHtml = item.sample_component_id 
-                    ? `<img src="/cell-image/${item.sample_component_id}" class="h-10 object-contain rounded border border-gray-200" title="Cell ID: ${item.sample_component_id}">`
-                    : `<span class="text-xs text-gray-400 italic">No Image</span>`;
+                const imgHtml = `<img src="/api/knowledge/image/${item.image_hash}" loading="lazy" onerror="this.outerHTML='<span class=\\'text-xs text-gray-400 italic\\'>No Image</span>'" class="h-10 object-contain rounded border border-gray-200" title="Hash: ${item.image_hash}">`;
 
                 tr.innerHTML = `
                     <td class="px-6 py-4 whitespace-nowrap text-gray-500 font-mono">${item.id}</td>
@@ -123,8 +173,24 @@
                         </div>
                     </td>
                 `;
-                tbody.appendChild(tr);
+                fragment.appendChild(tr);
             });
+
+            tbody.appendChild(fragment);
+
+            const pagControls = document.getElementById('pagination-controls');
+            if (pagControls) {
+                if (totalPages > 1) {
+                    pagControls.classList.remove('hidden');
+                    pagControls.classList.add('flex');
+                    document.getElementById('page-indicator').textContent = `Page ${currentPage} of ${totalPages}`;
+                    document.getElementById('btn-prev-page').disabled = currentPage === 1;
+                    document.getElementById('btn-next-page').disabled = currentPage === totalPages;
+                } else {
+                    pagControls.classList.add('hidden');
+                    pagControls.classList.remove('flex');
+                }
+            }
         }
 
         function startEdit(id) {
@@ -159,7 +225,23 @@
                 });
                 
                 if (res.ok) {
-                    loadKnowledgeBase(); // Reload to get fresh data
+                    // Update locally
+                    const item = kbData.find(k => k.id === id);
+                    if (item) {
+                        if (item.text_value !== newValue) {
+                            item.text_value = newValue;
+                            item.source = 'human_update';
+                            
+                            // Update badge to Human
+                            const badgeContainer = document.getElementById(`text-display-${id}`).closest('tr').querySelector('td:nth-child(5)');
+                            if (badgeContainer) {
+                                badgeContainer.innerHTML = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 uppercase">Human</span>';
+                            }
+                        }
+                        // Always update text display (in case of weird formatting changes)
+                        document.getElementById(`text-display-${id}`).textContent = newValue;
+                    }
+                    cancelEdit(id);
                 } else {
                     alert('Failed to update entry');
                 }

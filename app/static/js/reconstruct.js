@@ -87,21 +87,42 @@ function renderManifest() {
             out += `<div class="text-sm text-gray-500 mb-2">Page ${t.page}</div>`;
             out += `<table class="reconstructed-table">`;
             
-            // Extract rows
-            const rows = t.children.filter(c => c.type === 'ROW');
-            // If there are no rows explicitly, maybe just cells?
-            if (rows.length === 0) {
-                 const cells = t.children.filter(c => c.type === 'CELL');
-                 out += `<tr>`;
-                 cells.forEach(cell => {
-                     out += renderCell(cell);
-                 });
-                 out += `</tr>`;
+            // Extract all cells
+            const allCells = t.children.filter(c => c.type === 'CELL');
+            
+            const rowMap = {};
+            allCells.forEach(c => {
+                let rIdx = 0;
+                if (c.manifest_path) {
+                    const match = c.manifest_path.match(/_r(\d+)_/);
+                    if (match) rIdx = parseInt(match[1], 10);
+                }
+                // If it is already in a ROW child due to DB hierarchy (unlikely currently but future-proof)
+                if (c.parent_type === 'ROW' && c.row_idx !== undefined) rIdx = c.row_idx;
+                
+                if (!rowMap[rIdx]) rowMap[rIdx] = [];
+                rowMap[rIdx].push(c);
+            });
+            
+            const rowIndices = Object.keys(rowMap).map(Number).sort((a, b) => a - b);
+            
+            if (rowIndices.length === 0) {
+                 out += `<tr><td class="text-gray-400 italic text-sm py-2">No cells detected.</td></tr>`;
             } else {
-                 rows.forEach((r, idx) => {
-                     const isHeader = (idx === 0);
+                 rowIndices.forEach((rIdx, i) => {
+                     const isHeader = (i === 0);
                      out += `<tr>`;
-                     const cells = r.children.filter(c => c.type === 'CELL');
+                     let cells = rowMap[rIdx];
+                     
+                     // Sort cells by column index
+                     cells.sort((a, b) => {
+                         const ma = a.manifest_path ? a.manifest_path.match(/_c(\d+)\.png/) : null;
+                         const mb = b.manifest_path ? b.manifest_path.match(/_c(\d+)\.png/) : null;
+                         const ca = ma ? parseInt(ma[1], 10) : 0;
+                         const cb = mb ? parseInt(mb[1], 10) : 0;
+                         return ca - cb;
+                     });
+                     
                      cells.forEach(cell => {
                          out += renderCell(cell, isHeader);
                      });
@@ -116,11 +137,16 @@ function renderManifest() {
     };
     
     function renderCell(cell, isHeader=false) {
-        const text = cell.ocr ? cell.ocr.text : '';
+        let text = cell.ocr ? cell.ocr.text : '';
+        if (!text || text.trim() === '') {
+            text = '&nbsp;';
+        }
         const conf = cell.ocr ? cell.ocr.confidence : 0;
         
         let confClass = '';
-        if (cell.ocr && conf < 0.8) {
+        if (cell.ocr && cell.ocr.is_human) {
+            confClass = 'bg-green-100 text-green-900 font-medium';
+        } else if (cell.ocr && conf < 0.8) {
             confClass = 'cell-low-conf';
         } else if (cell.ocr && conf < 0.95) {
             confClass = 'cell-med-conf';
@@ -167,17 +193,45 @@ window.downloadCSV = function() {
     
     let csvContent = "";
     
-    // Simple export: iterate tables and rows
     const allTables = (manifestData.tables || []).concat(manifestData.borderless_tables || []);
     
     allTables.forEach((t, i) => {
         csvContent += `TABLE ${i+1} (Page ${t.page})\n`;
-        const rows = t.children.filter(c => c.type === 'ROW');
-        rows.forEach(r => {
-            const cells = r.children.filter(c => c.type === 'CELL');
+        
+        // Extract all cells
+        const allCells = t.children ? t.children.filter(c => c.type === 'CELL') : [];
+        if (allCells.length === 0) {
+            csvContent += "No cells detected\n\n";
+            return;
+        }
+
+        const rowMap = {};
+        allCells.forEach(c => {
+            let rIdx = 0;
+            if (c.manifest_path) {
+                const match = c.manifest_path.match(/_r(\d+)_/);
+                if (match) rIdx = parseInt(match[1], 10);
+            }
+            if (c.parent_type === 'ROW' && c.row_idx !== undefined) rIdx = c.row_idx;
+            
+            if (!rowMap[rIdx]) rowMap[rIdx] = [];
+            rowMap[rIdx].push(c);
+        });
+        
+        const rowIndices = Object.keys(rowMap).map(Number).sort((a, b) => a - b);
+        
+        rowIndices.forEach(rIdx => {
+            let cells = rowMap[rIdx];
+            cells.sort((a, b) => {
+                const ma = a.manifest_path ? a.manifest_path.match(/_c(\d+)\.png/) : null;
+                const mb = b.manifest_path ? b.manifest_path.match(/_c(\d+)\.png/) : null;
+                const ca = ma ? parseInt(ma[1], 10) : 0;
+                const cb = mb ? parseInt(mb[1], 10) : 0;
+                return ca - cb;
+            });
+            
             const rowData = cells.map(c => {
                 let text = c.ocr ? c.ocr.text : '';
-                // escape quotes and wrap in quotes
                 if (text.includes(',') || text.includes('\n') || text.includes('"')) {
                     text = '"' + text.replace(/"/g, '""') + '"';
                 }
@@ -201,14 +255,28 @@ window.downloadCSV = function() {
 window.downloadPDF = function() {
     if (!manifestData) return;
     const element = document.getElementById('reconstructed-content');
+    
+    // Temporarily apply styles for PDF generation to prevent right-side cropping
+    const originalWidth = element.style.width;
+    const originalMaxWidth = element.style.maxWidth;
+    element.style.width = '1200px';
+    element.style.maxWidth = '1200px';
+    element.classList.add('text-xs');
+    
     const opt = {
-      margin:       0.5,
+      margin:       0.3,
       filename:     `reconstructed_${currentDocumentId}.pdf`,
       image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      html2canvas:  { scale: 2, windowWidth: 1200 },
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
     };
-    html2pdf().set(opt).from(element).save();
+    
+    html2pdf().set(opt).from(element).save().then(() => {
+        // Restore original styles after export
+        element.style.width = originalWidth;
+        element.style.maxWidth = originalMaxWidth;
+        element.classList.remove('text-xs');
+    });
 }
 
 // Init

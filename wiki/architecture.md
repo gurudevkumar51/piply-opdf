@@ -2,28 +2,31 @@
 
 ## Knowledge First Strategy
 
-The core architectural tenet of Piply OPDF is that **OCR is the last option rather than the first option.** Before calling OCR engines, the system attempts to resolve text through a 5-Level Learning pipeline:
+The core architectural tenet of Piply OPDF is that **OCR is the last option rather than the first option**, but only exact, human-trusted knowledge may bypass review. Near-hash or similarity matches must not auto-fill trusted values because visually similar cells can contain different text.
+
+Before calling OCR engines, the system follows this trust-aware pipeline:
 
 ```mermaid
 graph TD
     A[Image] --> B[Level 1: Exact Knowledge Match]
-    B --> C[Level 2: Similar Image Match]
-    C --> D[Level 3: ML Prediction]
-    D --> E[Level 4: OCR]
-    E --> F[Level 5: Human Review]
+    B --> C[Level 2: ML Prediction]
+    C --> D[Level 3: OCR]
+    D --> E[Level 4: Human Review]
+    E --> F[Knowledge Base Update]
 ```
 
 ### Learning Levels
 
-1. **Level 1 - Exact Match**: Instantly return a previously learned value using perceptual hashes (pHash, dHash, aHash).
-2. **Level 2 - Similarity Matching**: Find visually similar content using Structural Similarity Index (SSIM), Histogram Similarity, Projection Profiles, and Edge Density.
-3. **Level 3 - ML Prediction**: Utilize lightweight ML models (KNN, Random Forest, SVM) *only after* sufficient labeled data has been collected. (No deep learning or transformers).
-4. **Level 4 - OCR**: Fallback processing mechanism using configured OCR engines (e.g., PaddleOCR, Tesseract).
-5. **Level 5 - Human Review**: Final validation layer for low-confidence outputs, looping back into the Knowledge Base.
+1. **Level 1 - Exact Match**: Instantly return a previously learned value only when the current image hash exactly matches a human-trusted knowledge entry. This appears under the `EXACT HASH MATCH` review filter.
+2. **Level 2 - ML Prediction**: Use lightweight ML models trained from the Knowledge DB to predict values when no exact hash exists. ML predictions are suggestions until accepted by a human.
+3. **Level 3 - OCR**: Fallback processing mechanism using configured OCR engines (e.g., PaddleOCR, Tesseract).
+4. **Level 4 - Human Review**: Final validation layer. Any accepted or edited OCR/ML value becomes trusted feedback and is written to the Knowledge DB.
+
+Near-hash, SSIM, histogram, projection-profile, and edge-density similarity may be used as ML features or review hints, but they must not create automatic trusted feedback.
 
 ## Feature Extraction
 
-To power clustering, learning, and ML prediction (Levels 1-3), the system must extract and store reusable image features for each component:
+To power exact matching, learning, and ML prediction, the system must extract and store reusable image features for each component:
 * pHash
 * dHash
 * aHash
@@ -39,7 +42,7 @@ Learning must be reusable across projects. The system maintains a global Knowled
 
 `Image` → `Hash` → `Text Value` → `Confidence` → `Metadata`
 
-*The primary rule: The same learned image should never require human review again.*
+*The primary rule: The same exact learned image should never require human review again. Similar images require ML/OCR prediction plus human review unless confidence policy later defines a separate safe path.*
 
 ## Object-Oriented Design Principles
 

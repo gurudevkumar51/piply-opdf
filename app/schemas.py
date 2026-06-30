@@ -21,6 +21,7 @@ class OCRFeedbackResponse(OCRFeedbackBase):
     id: int
     prediction_id: int
     reviewed_at: datetime
+    source: str = "human"
 
     class Config:
         from_attributes = True
@@ -28,6 +29,7 @@ class OCRFeedbackResponse(OCRFeedbackBase):
 class OCRPredictionBase(BaseModel):
     predicted_text: str
     confidence: float
+    source: str = "ocr"
 
 class OCRPredictionResponse(OCRPredictionBase):
     id: int

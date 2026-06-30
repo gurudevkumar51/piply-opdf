@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piply OPDF - OCR Bulk Review</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/js/tailwind.js"></script>
 </head>
 <body class="bg-gray-100 h-screen flex flex-col font-sans overflow-hidden">
 
@@ -24,12 +24,25 @@
                 </svg>
             </div>
             
-            <a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition">Dashboard</a>
-            <a href="/knowledge" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition">Knowledge Base</a>
+            <div class="flex space-x-4 border-r border-gray-300 pr-4 mr-2">
+                <a href="/" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Dashboard</a>
+                <a href="/manage" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Manage</a>
+                <a href="/review" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">OCR Review</a>
+                <a href="/reconstruct" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Reconstruct</a>
+                <a href="/knowledge" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Knowledge Base</a>
+            </div>
             
-            <select id="doc-selector" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[200px] focus:outline-none shadow-sm cursor-pointer hover:bg-gray-50" onchange="window.selectDocument(this.value)">
-                <option value="">-- Select Document --</option>
-            </select>
+            <div class="flex items-center space-x-2">
+                <select id="doc-selector" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[200px] focus:outline-none shadow-sm cursor-pointer hover:bg-gray-50" onchange="window.selectDocument(this.value)">
+                    <option value="">-- Select Document --</option>
+                </select>
+                <button id="btn-reprocess" class="hidden px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition font-semibold shadow-sm" onclick="window.reprocessDocument()">
+                    Re-Process
+                </button>
+                <button id="btn-resume-ocr" onclick="resumeOcr()" class="hidden bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded transition shadow-sm text-sm font-semibold">
+                    ▶ Resume OCR
+                </button>
+            </div>
         </div>
     </header>
 
@@ -51,17 +64,32 @@
                 <option value="desc">Confidence (High to Low)</option>
             </select>
 
-            <label class="ml-6 flex items-center space-x-2 text-sm font-medium text-gray-700 cursor-pointer">
-                <input type="checkbox" id="filter-unreviewed" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" onchange="window.renderReviewList()">
-                <span>Show Only Unreviewed</span>
-            </label>
+            <div class="font-semibold text-gray-700 ml-4">Source:</div>
+            <select id="filter-source" class="border rounded px-2 py-1" onchange="window.renderReviewList(true, 1)">
+                <option value="all">All Sources</option>
+                <option value="ocr">OCR (All Engines)</option>
+                <option value="ml">ML Predictions</option>
+                <option value="exact_match">EXACT HASH MATCH</option>
+                <option value="human">HUMAN</option>
+                <option value="human_verified">VERIFIED OCR</option>
+            </select>
             
             <div class="ml-6 text-sm font-bold text-gray-600">
                 Cards: <span id="card-count">0</span>
             </div>
         </div>
-        <div>
-            <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded shadow text-sm font-bold transition" onclick="window.acceptAllFiltered()">
+        
+        <!-- Second row of filters -->
+        <div id="advanced-filters" class="hidden mt-3 flex items-center space-x-4 border-t pt-3 border-gray-200">
+            <div class="font-semibold text-gray-700 text-sm">Filter Page:</div>
+            <div id="page-filters" class="flex flex-wrap gap-2"></div>
+            
+            <div class="font-semibold text-gray-700 text-sm ml-4">Filter Table:</div>
+            <div id="table-filters" class="flex flex-wrap gap-2"></div>
+        </div>
+        
+        <div class="absolute right-6 top-4">
+            <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded shadow text-sm font-bold transition" onclick="window.acceptAllFiltered()">
                 Accept All Filtered
             </button>
         </div>
@@ -73,11 +101,18 @@
             <div class="text-lg font-bold text-gray-500 animate-pulse">Loading cells...</div>
         </div>
         
-        <div id="review-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div id="review-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-6">
             <div class="col-span-full text-center text-gray-500 mt-10">Select a document to begin review.</div>
+        </div>
+        
+        <!-- Pagination Controls -->
+        <div id="pagination-controls" class="hidden flex justify-center items-center space-x-4 pb-6 mt-4 border-t border-gray-200 pt-4">
+            <button id="btn-prev-page" class="px-4 py-2 bg-white border border-gray-300 rounded shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" onclick="window.changePage(-1)">Previous</button>
+            <span id="page-indicator" class="text-sm font-semibold text-gray-700">Page 1 of 1</span>
+            <button id="btn-next-page" class="px-4 py-2 bg-white border border-gray-300 rounded shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" onclick="window.changePage(1)">Next</button>
         </div>
     </main>
 
-    <script src="/static/js/review.js?v=2"></script>
+    <script src="/static/js/review.js?v=5"></script>
 </body>
 </html>

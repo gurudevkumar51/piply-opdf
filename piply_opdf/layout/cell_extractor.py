@@ -61,10 +61,14 @@ class CellExtractor:
         for cell in table.cells:
             x, y, w, h = cell.bbox.to_tuple()
             
-            y1 = max(0, y)
-            y2 = min(ih, y + h)
-            x1 = max(0, x)
-            x2 = min(iw, x + w)
+            # Add padding to avoid cutting off edge characters
+            pad_x = 4
+            pad_y = 2
+            
+            y1 = max(0, y - pad_y)
+            y2 = min(ih, y + h + pad_y)
+            x1 = max(0, x - pad_x)
+            x2 = min(iw, x + w + pad_x)
             
             if x2 > x1 and y2 > y1:
                 cell_img = image[y1:y2, x1:x2]

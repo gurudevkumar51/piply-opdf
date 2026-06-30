@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piply OPDF - Reconstruction & Comparison</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/js/tailwind.js"></script>
     <!-- Include html2pdf to easily convert the right pane to PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
@@ -37,9 +37,15 @@
 
     <!-- Header -->
     <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center z-10">
-        <h1 class="text-xl font-bold text-blue-900 tracking-tight">Layout Reconstruction</h1>
+        <h1 class="text-xl font-bold text-blue-900 tracking-tight">Piply OPDF</h1>
         <div class="flex space-x-3 items-center">
-            <a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition mr-4">Back to Dashboard</a>
+            <div class="flex space-x-4 border-r border-gray-300 pr-4 mr-2">
+                <a href="/" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Dashboard</a>
+                <a href="/manage" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Manage</a>
+                <a href="/review" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">OCR Review</a>
+                <a href="/reconstruct" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Reconstruct</a>
+                <a href="/knowledge" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Knowledge Base</a>
+            </div>
             <select id="doc-selector" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[200px] focus:outline-none shadow-sm cursor-pointer hover:bg-gray-50" onchange="window.selectDocument(this.value)">
                 <option value="">-- Select Document --</option>
             </select>
@@ -87,6 +93,6 @@
 
     </main>
 
-    <script src="/static/js/reconstruct.js?v=1"></script>
+    <script src="/static/js/reconstruct.js?v=2"></script>
 </body>
 </html>

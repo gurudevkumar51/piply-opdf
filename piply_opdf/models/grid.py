@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from pydantic import BaseModel, Field
 
 class GridBoundingBox(BaseModel):
@@ -87,4 +87,5 @@ class BorderlessTableModel(BaseModel):
     bbox: Tuple[int, int, int, int]
     columns: List[Tuple[int, int, int, int]] = Field(default_factory=list)
     rows: List[Tuple[int, int, int, int]] = Field(default_factory=list)
+    cells: List[Any] = Field(default_factory=list)
     confidence: float = 1.0

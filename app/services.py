@@ -43,6 +43,12 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         return
 
     try:
+        # Delete existing components via ORM to trigger cascade deletes
+        old_components = db.query(models.Component).filter(models.Component.document_id == document_id).all()
+        for c in old_components:
+            db.delete(c)
+        db.commit()
+        
         from piply_opdf.document import Document
         file_path = os.path.join(UPLOAD_DIR, filename)
         
@@ -72,16 +78,18 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         # Parse output manifests and populate DB
         
         # Helper to process a manifest component
-        def insert_component(manifest: dict, comp_type: str, page_num: int, parent_id: int = None):
+        def insert_component(manifest, comp_type, page_num, parent_id=None, row_idx=None):
             # Normalize bbox to [x0, y0, x1, y1] array format
             bbox = manifest.get('bbox', [])
             if isinstance(bbox, dict):
-                # Piply uses {"x": ..., "y": ..., "width": ..., "height": ...}
                 x = bbox.get('x', bbox.get('x0', 0))
                 y = bbox.get('y', bbox.get('y0', 0))
-                w = bbox.get('width', bbox.get('w', 0))
-                h = bbox.get('height', bbox.get('h', 0))
+                w = bbox.get('width', bbox.get('width', 0))
+                h = bbox.get('height', bbox.get('height', 0))
                 bbox = [x, y, x + w, y + h]
+            elif isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                # piply_opdf layout models output lists/tuples exclusively in (x, y, w, h) format
+                bbox = [bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]
             elif not bbox and 'x0' in manifest and 'y0' in manifest:
                 bbox = [manifest['x0'], manifest['y0'], manifest.get('x1', manifest['x0']), manifest.get('y1', manifest['y0'])]
             elif not bbox and 'x' in manifest and 'y' in manifest:
@@ -111,18 +119,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                 )
                 db.add(db_pred)
                 
-            # If there is an image, extract features and possibly OCR
-            img_path = manifest.get('image_path')
-            if img_path and os.path.exists(img_path):
-                try:
-                    features = _feature_extractor.extract_features(img_path)
-                    db_feat = models.ImageFeature(
-                        component_id=db_comp.id,
-                        **features
-                    )
-                    db.add(db_feat)
-                except Exception as e:
-                    print(f"Feature extraction failed: {e}")
+            # (Features are now extracted on the fly by the OCR engine and saved to the Knowledge Base on feedback)
             
             return db_comp.id
 
@@ -157,12 +154,14 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
             t_id = insert_component(t_manifest, "BORDERLESS_TABLE", page_num)
             
             # Insert Columns
-            for c in getattr(t, 'columns', []):
-                insert_component(c.model_dump(), "COLUMN", page_num, parent_id=t_id)
+            for idx, c in enumerate(getattr(t, 'columns', [])):
+                c_data = c.model_dump() if hasattr(c, 'model_dump') else {"bbox": list(c), "column_id": f"c{idx}"}
+                insert_component(c_data, "COLUMN", page_num, parent_id=t_id)
                 
             # Insert Rows
-            for r in getattr(t, 'rows', []):
-                insert_component(r.model_dump(), "ROW", page_num, parent_id=t_id)
+            for idx, r in enumerate(getattr(t, 'rows', [])):
+                r_data = r.model_dump() if hasattr(r, 'model_dump') else {"bbox": list(r), "row_id": f"r{idx}"}
+                insert_component(r_data, "ROW", page_num, parent_id=t_id)
                 
             # Insert Cells
             for cell in getattr(t, 'cells', []):
@@ -173,13 +172,21 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
 
         # 3. Parse headers
         for h in piply_doc.headers:
-            page_num = getattr(h, 'page', getattr(h, 'page_number', 1))
-            insert_component({"bbox": h.bbox, "text": getattr(h, 'text', ''), "confidence": getattr(h, 'confidence', 1.0)}, "HEADER", page_num)
+            if isinstance(h, dict):
+                page_num = h.get('page', h.get('page_number', 1))
+                insert_component({"bbox": h.get('bbox', []), "text": h.get('text', ''), "confidence": h.get('confidence', 1.0)}, "HEADER", page_num)
+            else:
+                page_num = getattr(h, 'page', getattr(h, 'page_number', 1))
+                insert_component({"bbox": getattr(h, 'bbox', []), "text": getattr(h, 'text', ''), "confidence": getattr(h, 'confidence', 1.0)}, "HEADER", page_num)
                 
         # 4. Parse footers
         for f in piply_doc.footers:
-            page_num = getattr(f, 'page', getattr(f, 'page_number', 1))
-            insert_component({"bbox": f.bbox, "text": getattr(f, 'text', ''), "confidence": getattr(f, 'confidence', 1.0)}, "FOOTER", page_num)
+            if isinstance(f, dict):
+                page_num = f.get('page', f.get('page_number', 1))
+                insert_component({"bbox": f.get('bbox', []), "text": f.get('text', ''), "confidence": f.get('confidence', 1.0)}, "FOOTER", page_num)
+            else:
+                page_num = getattr(f, 'page', getattr(f, 'page_number', 1))
+                insert_component({"bbox": getattr(f, 'bbox', []), "text": getattr(f, 'text', ''), "confidence": getattr(f, 'confidence', 1.0)}, "FOOTER", page_num)
 
         db.commit()
         
@@ -202,10 +209,14 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
 def run_ocr_on_cells(document_id: int):
     """Run 3-Layer OCR on all CELL components of a document."""
     from . import ocr_service
+    from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=database.engine)
     db = SessionLocal()
+    extractor = DefaultFeatureExtractor()
     
     try:
+        doc_record = db.query(models.Document).filter(models.Document.id == document_id).first()
+        engine_name = doc_record.ocr_engine if doc_record and getattr(doc_record, 'ocr_engine', None) else "paddle"
     
         cells = db.query(models.Component).filter(
             models.Component.document_id == document_id,
@@ -215,6 +226,15 @@ def run_ocr_on_cells(document_id: int):
         for cell in cells:
             if not cell.manifest_path or not os.path.exists(cell.manifest_path):
                 continue
+                
+            # If phash is not computed yet, compute it now
+            if not cell.phash:
+                try:
+                    features = extractor.extract_features(cell.manifest_path)
+                    if features and "phash" in features:
+                        cell.phash = features["phash"]
+                except Exception as e:
+                    pass
             
             # Skip if already has a prediction
             existing = db.query(models.OCRPrediction).filter(
@@ -224,12 +244,13 @@ def run_ocr_on_cells(document_id: int):
                 continue
                 
             try:
-                ocr_res = ocr_service.extract_cell_text(cell.manifest_path, db)
+                ocr_res = ocr_service.extract_cell_text(cell.manifest_path, db, engine_name=engine_name)
                 if ocr_res is not None:
                     db_pred = models.OCRPrediction(
                         component_id=cell.id,
                         predicted_text=ocr_res.text,
-                        confidence=ocr_res.confidence
+                        confidence=ocr_res.confidence,
+                        source=ocr_res.source
                     )
                     db.add(db_pred)
                     db.commit()
@@ -251,15 +272,33 @@ def export_ocr_manifest(document_id: int, db: Session):
     
     components = db.query(models.Component).filter(models.Component.document_id == document_id).all()
     
-    # We also need OCR predictions to include in the master manifest
+    # We also need OCR predictions and feedback to include in the master manifest
     preds = db.query(models.OCRPrediction).filter(
         models.OCRPrediction.component_id.in_([c.id for c in components])
     ).all()
     
-    pred_dict = {p.component_id: {
-        "text": p.predicted_text,
-        "confidence": p.confidence
-    } for p in preds}
+    pred_ids = [p.id for p in preds]
+    feedbacks = db.query(models.OCRFeedback).filter(
+        models.OCRFeedback.prediction_id.in_(pred_ids)
+    ).all() if pred_ids else []
+    feedback_dict = {f.prediction_id: f for f in feedbacks}
+    
+    pred_dict = {}
+    for p in preds:
+        fb = feedback_dict.get(p.id)
+        final_text = p.predicted_text
+        is_human = False
+        
+        if fb and fb.is_accepted and fb.source != "hash_match":
+            if fb.user_value is not None:
+                final_text = fb.user_value
+            is_human = True
+            
+        pred_dict[p.component_id] = {
+            "text": final_text,
+            "confidence": 1.0 if is_human else p.confidence,
+            "is_human": is_human
+        }
 
     manifest = {
         "document_id": document_id,

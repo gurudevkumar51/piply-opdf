@@ -121,15 +121,21 @@ fileUpload.addEventListener('change', async (e) => {
 });
 
 // Process Document
-processBtn.addEventListener('click', async () => {
+window.processDocument = async function(engine = 'paddle') {
     if (!currentDocumentId) return;
 
     statusBadge.textContent = "Processing...";
     statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500 text-white";
     processBtn.disabled = true;
+    const processDropdownBtn = document.getElementById('process-dropdown-btn');
+    if (processDropdownBtn) processDropdownBtn.disabled = true;
+    
+    // hide dropdown if open
+    const dropdown = document.getElementById('process-dropdown');
+    if (dropdown) dropdown.classList.add('hidden');
 
     try {
-        const res = await fetch(`/process/${currentDocumentId}`, {
+        const res = await fetch(`/process/${currentDocumentId}?ocr_engine=${engine}`, {
             method: 'POST'
         });
         const data = await res.json();
@@ -141,9 +147,28 @@ processBtn.addEventListener('click', async () => {
         statusBadge.textContent = "Process Failed";
         statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white";
         processBtn.disabled = false;
+        if (processDropdownBtn) processDropdownBtn.disabled = false;
+    }
+};
+
+window.toggleProcessDropdown = function(e) {
+    if (e) e.stopPropagation();
+    const dropdown = document.getElementById('process-dropdown');
+    if (dropdown) {
+        dropdown.classList.toggle('hidden');
+    }
+};
+
+// Close dropdown if clicked outside
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('process-dropdown');
+    const dropdownBtn = document.getElementById('process-dropdown-btn');
+    if (dropdown && !dropdown.classList.contains('hidden')) {
+        if (e.target !== dropdown && e.target !== dropdownBtn && !dropdown.contains(e.target)) {
+            dropdown.classList.add('hidden');
+        }
     }
 });
-
 async function pollStatus() {
     try {
         const res = await fetch(`/documents/${currentDocumentId}`);

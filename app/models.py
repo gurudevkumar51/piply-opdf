@@ -12,6 +12,7 @@ class Document(Base):
     uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)
     page_count = Column(Integer, default=0)
     status = Column(String, default="uploaded") # uploaded, processing, completed, error
+    ocr_engine = Column(String, default="paddle")
 
     components = relationship("Component", back_populates="document", cascade="all, delete-orphan")
 
@@ -26,10 +27,10 @@ class Component(Base):
     confidence = Column(Float, default=1.0)
     manifest_path = Column(String, nullable=True) # Optional path to sub-manifest (e.g. table_001_manifest.json)
     parent_id = Column(Integer, ForeignKey("components.id"), nullable=True) # For tree structures (Table -> Row -> Cell)
+    phash = Column(String(64), nullable=True) # Perceptual hash for grouping identical cells
 
     document = relationship("Document", back_populates="components")
     predictions = relationship("OCRPrediction", back_populates="component", cascade="all, delete-orphan")
-    image_features = relationship("ImageFeature", back_populates="component", uselist=False, cascade="all, delete-orphan")
     children = relationship("Component", backref="parent", remote_side=[id])
 
 class OCRPrediction(Base):
@@ -39,6 +40,7 @@ class OCRPrediction(Base):
     component_id = Column(Integer, ForeignKey("components.id"))
     predicted_text = Column(Text)
     confidence = Column(Float)
+    source = Column(String, default="ocr")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     component = relationship("Component", back_populates="predictions")
@@ -52,41 +54,6 @@ class OCRFeedback(Base):
     user_value = Column(Text)
     is_accepted = Column(Boolean, default=False)
     reviewed_at = Column(DateTime, default=datetime.datetime.utcnow)
+    source = Column(String, default="human") # human trust source for accepted feedback
 
     prediction = relationship("OCRPrediction", back_populates="feedback")
-
-class OCRKnowledgeBase(Base):
-    __tablename__ = "ocr_knowledge_base"
-
-    id = Column(Integer, primary_key=True, index=True)
-    image_hash = Column(String, unique=True, index=True)
-    text_value = Column(Text)
-    confidence = Column(Float, default=1.0)
-    source = Column(String) # 'human', 'paddle', 'tesseract', 'voted'
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-class ImageFeature(Base):
-    __tablename__ = "image_features"
-
-    id = Column(Integer, primary_key=True, index=True)
-    component_id = Column(Integer, ForeignKey("components.id"), unique=True)
-    phash = Column(String)
-    dhash = Column(String)
-    ahash = Column(String)
-    width = Column(Integer)
-    height = Column(Integer)
-    aspect_ratio = Column(Float)
-    edge_density = Column(Float)
-    histogram_features = Column(Text) # JSON string array
-
-    component = relationship("Component", back_populates="image_features")
-
-class KnowledgeBase(Base):
-    __tablename__ = "knowledge_base"
-
-    id = Column(Integer, primary_key=True, index=True)
-    image_hash = Column(String, index=True) # pHash for quick lookup
-    text_value = Column(Text)
-    source = Column(String) # user_feedback, manual
-    confidence = Column(Float, default=1.0)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)

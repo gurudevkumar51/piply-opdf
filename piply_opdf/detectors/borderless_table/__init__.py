@@ -166,7 +166,8 @@ class BorderlessTableDetector:
                     final_cols.append([int(c_min), int(c_max)])
             
             # Add padding to table bounds
-            padding_x = 40
+            # Massive padding to prevent PyMuPDF vs pdf2image coordinate mismatch from slicing text!
+            padding_x = 150
             padding_y = 50
             x0 = max(0, x0 - padding_x)
             y0 = max(0, y0 - padding_y)
@@ -219,20 +220,20 @@ class BorderlessTableDetector:
                 c_min, c_max = final_cols[col_idx]
                 
                 if col_idx == 0:
-                    left_bound = c_min - 20
+                    left_bound = c_min - 5
                 else:
-                    prev_max = final_cols[col_idx-1][1]
+                    prev_max = final_cols[col_idx - 1][1]
                     if prev_max >= c_min:
-                        # Text overlaps physically! Allow the column image to overlap so we don't chop text.
-                        left_bound = c_min - 10
+                        # Overlap, midpoint
+                        left_bound = c_min - 5
                     else:
-                        # Clean whitespace gap, split it down the middle
+                        # Safe midpoint
                         left_bound = (prev_max + c_min) / 2
                         
                 if col_idx == len(final_cols) - 1:
-                    right_bound = c_max + 20
+                    right_bound = c_max + 5
                 else:
-                    next_min = final_cols[col_idx+1][0]
+                    next_min = final_cols[col_idx + 1][0]
                     if c_max >= next_min:
                         # Text overlaps physically! Allow the column image to overlap so we don't chop text.
                         right_bound = c_max + 10
@@ -249,9 +250,27 @@ class BorderlessTableDetector:
                 ))
             
             table_rows_extracted = []
-            for tr in t:
-                r_y0 = int(max(0, tr['y0'] - 2))
-                r_y1 = int(tr['y1'] + 2)
+            for r_idx in range(len(t)):
+                tr = t[r_idx]
+                
+                if r_idx == 0:
+                    r_y0 = int(max(0, tr['y0'] - 2))
+                else:
+                    prev_y1 = t[r_idx - 1]['y1']
+                    if prev_y1 >= tr['y0']:
+                        r_y0 = int(tr['y0'])
+                    else:
+                        r_y0 = int((prev_y1 + tr['y0']) / 2)
+                        
+                if r_idx == len(t) - 1:
+                    r_y1 = int(tr['y1'] + 2)
+                else:
+                    next_y0 = t[r_idx + 1]['y0']
+                    if tr['y1'] >= next_y0:
+                        r_y1 = int(tr['y1'])
+                    else:
+                        r_y1 = int((tr['y1'] + next_y0) / 2)
+                        
                 table_rows_extracted.append((x0, r_y0, x1 - x0, r_y1 - r_y0))
                 
             results.append(BorderlessTableModel(

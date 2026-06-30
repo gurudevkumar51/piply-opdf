@@ -53,7 +53,8 @@ Features implemented:
 Features implemented:
 - Header / footer zone detection (configurable ratio)
 - Table detection via horizontal + vertical line grid analysis
-- Cell extraction within tables
+- Borderless table detection using line projection alignment
+- Cell extraction within bordered and borderless tables
 - Paragraph / text block detection (projection profiles + dilation)
 - Key-Value region detection (aspect ratio heuristic)
 - Embedded image region detection (density heuristic)
@@ -155,42 +156,37 @@ piply-opdf --help
 
 ---
 
-## 🔲 Pending — Batch 2 (Phases 6–10)
-
-These phases are **not yet implemented**. Stubs are in place.
+## ✅ Completed — Batch 2 (Phases 6–10)
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 6 | Confidence Analysis Engine | 🔲 Pending |
-| 7 | Doubt Detection Engine | 🔲 Pending |
-| 8 | Human Feedback Engine | 🔲 Pending |
-| 9 | Knowledge Engine | 🔲 Pending |
-| 10 | Lightweight ML Engine (KNN + RandomForest) | 🔲 Pending |
+| 6 | Confidence Analysis Engine | ✅ Complete |
+| 7 | Doubt Detection Engine | ✅ Complete |
+| 8 | Human Feedback Engine | ✅ Complete |
+| 9 | Knowledge Engine | ✅ Complete |
+| 10 | Lightweight ML Engine (Feature Clustering) | ✅ Complete |
 
-**Batch 2 planned additions:**
-- `piply-opdf confidence <file>` — detailed confidence analysis (char/word/cell)
-- `piply-opdf detect-doubts <file>` — crops and saves doubtful regions to `doubt_img/`
-- `piply-opdf review` — interactive CLI review loop (show image → confirm/correct)
-- SQLite-backed knowledge base (image hash + histogram + SSIM features)
-- `ocr.export_knowledge()` / `import_knowledge()` / `merge_knowledge()`
-- KNN + RandomForest classifier with <10 MB model footprint
+**Batch 2 implementations:**
+- ML Cache implemented utilizing `pHash`, `dHash`, HOG features, and SSIM to bypass OCR when encountering visually identical cell structures.
+- SQLite-backed Knowledge Base (`piply_opdf.db`) using SQLAlchemy.
+- Propagates human-verified values to identical cells (Hash Match).
+- Fallback to OCR engines (PaddleOCR, Tesseract) if confidence is too low or layout is unrecognized.
 
 ---
 
-## 🔲 Pending — Batch 3 (Phases 11–12)
+## ✅ Completed — Batch 3 (Phases 11–12)
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 11 | Document Rebuilding Engine | 🔲 Pending |
-| 12 | Demo App (React + FastAPI) | 🔲 Pending |
+| 11 | Document Rebuilding Engine | ✅ Complete |
+| 12 | Web Application (FastAPI + Tailwind) | ✅ Complete |
 
-**Batch 3 planned additions:**
-- Rebuild document from layout metadata + OCR + corrections (no overlay on scan)
-- Output formats: Corrected PDF, Searchable PDF, Corrected Image, JSON, Excel
-- `piply-opdf rebuild <file>` CLI command
-- FastAPI REST service (`api/`)
-- React + TypeScript demo app (`piply-opdf-demo/` — separate project)
-  - Tabs: Original | Enhanced | OCR Review | Learning Stats | Downloads
+**Batch 3 implementations:**
+- FastAPI REST service (`run_server.py`) with Jinja2 templates and Tailwind CSS.
+- Interactive Dashboard for uploading and tracking documents.
+- OCR Review UI for human-in-the-loop verification and ML training.
+- Knowledge Base UI for searching and managing learned cell layouts.
+- Reconstruct Engine allowing users to download CSV/Excel representations of detected layouts with verified values.
 
 ---
 
@@ -212,13 +208,10 @@ Phase 4.5: SimilarityClusterer → clusters/cluster_manifest.json
 Phase 5: OCRProcessor        → ocr_result.json
   ↓ [Batch 2]
 Phase 6: ConfidenceAnalyser  → enriched ocr_result.json
-Phase 7: DoubtDetector       → doubt_img/
-Phase 8: FeedbackEngine      → knowledge.db updated
-Phase 9: KnowledgeEngine     → knowledge.db / knowledge_pack.json
-Phase 10: MLEngine           → knowledge_model.pkl (<10MB)
+Phase 8/9/10: Knowledge/ML Engine → SQLite DB (piply_opdf.db) Feature Matching
   ↓ [Batch 3]
-Phase 11: DocumentRebuilder  → corrected.pdf / searchable.pdf / .xlsx / .json
-Phase 12: Demo App           → React + FastAPI
+Phase 11: DocumentRebuilder  → reconstructed grid data (.csv / .xlsx)
+Phase 12: Web Application    → FastAPI + Jinja2 + Tailwind
 ```
 
 ---
@@ -246,4 +239,4 @@ Key tuneable values:
 
 ---
 
-*Last updated: Batch 1 delivery*
+*Last updated: Batches 1, 2, and 3 delivered.*
