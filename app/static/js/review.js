@@ -2,10 +2,28 @@ let currentDocumentId = null;
 let cells = [];
 let currentPage = 1;
 const itemsPerPage = 60;
+const REVIEWABLE_TYPES = ['CELL', 'KEY_VALUE', 'WORD'];
 
 const docSelector = document.getElementById('doc-selector');
 const reviewList = document.getElementById('review-list');
 const loading = document.getElementById('loading');
+
+function isReviewableComponent(component) {
+    return component && REVIEWABLE_TYPES.includes(component.component_type);
+}
+
+function getDisplayTitle(component) {
+    let displayTitle = `${component.component_type} ${component.id}`;
+    if (component.component_type === 'KEY_VALUE') displayTitle = `KEY-VALUE ${component.id}`;
+    if (component.component_type === 'WORD') displayTitle = `WORD ${component.id}`;
+
+    if (component.component_type === 'CELL' && component.manifest_path) {
+        const match = component.manifest_path.match(/_r(\d+)_c(\d+)\.png$/);
+        if (match) displayTitle = `CELL ${match[1]}-${match[2]}`;
+    }
+
+    return displayTitle;
+}
 
 async function loadDocuments() {
     try {
@@ -59,7 +77,7 @@ window.reloadCell = async function (componentId) {
         const res = await fetch(`/ocr-cell/${componentId}/reload?strategy=${nextState}`, { method: 'POST' });
         const updatedComponent = await res.json();
 
-        // update cells locally
+        // update review unit locally
         const cell = cells.find(c => c.id === componentId);
         if (cell) {
             cell.predictions = updatedComponent.predictions;
@@ -75,7 +93,7 @@ window.reloadCell = async function (componentId) {
             if (btn) btn.textContent = nextBtnText;
         }
     } catch (e) {
-        console.error("Failed to run OCR for cell", e);
+        console.error("Failed to run OCR for review unit", e);
         if (loaderEl) loaderEl.classList.add('hidden');
     }
 }
@@ -143,7 +161,7 @@ window.selectDocument = async function (docId) {
     try {
         const res = await fetch(`/components/${docId}?t=${new Date().getTime()}`);
         const allComps = await res.json();
-        cells = allComps.filter(c => c.component_type === 'CELL');
+        cells = allComps.filter(isReviewableComponent);
 
         allPages.clear();
         allTables.clear();
@@ -232,7 +250,7 @@ function checkAndPollOcr() {
             try {
                 const res = await fetch(`/components/${currentDocumentId}?t=${new Date().getTime()}`);
                 const allComps = await res.json();
-                const newCells = allComps.filter(c => c.component_type === 'CELL');
+                const newCells = allComps.filter(isReviewableComponent);
                 const newMissingCount = newCells.filter(c => !c.predictions || c.predictions.length === 0).length;
 
                 if (newMissingCount < cells.filter(c => !c.predictions || c.predictions.length === 0).length) {
@@ -290,11 +308,7 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
     // Search Filter
     if (searchVal) {
         filtered = filtered.filter(c => {
-            let displayTitle = `CELL ${c.id}`;
-            if (c.manifest_path) {
-                const match = c.manifest_path.match(/_r(\d+)_c(\d+)\.png$/);
-                if (match) displayTitle = `CELL ${match[1]}-${match[2]}`;
-            }
+            let displayTitle = getDisplayTitle(c);
             const predText = (c.predictions && c.predictions.length > 0) ? c.predictions[0].predicted_text.toLowerCase() : '';
             return displayTitle.toLowerCase().includes(searchVal) || c.id.toString() === searchVal || predText.includes(searchVal);
         });
@@ -383,7 +397,7 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
     if (countEl) countEl.textContent = filtered.length;
 
     if (filtered.length === 0) {
-        reviewList.innerHTML = '<div class="col-span-full text-center text-gray-500 mt-10">No cells match your filters.</div>';
+        reviewList.innerHTML = '<div class="col-span-full text-center text-gray-500 mt-10">No review units match your filters.</div>';
         const pagControls = document.getElementById('pagination-controls');
         if (pagControls) pagControls.classList.add('hidden');
         return;
@@ -440,11 +454,7 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
 }
 
 function getCardInnerHtml(c) {
-    let displayTitle = `CELL ${c.id}`;
-    if (c.manifest_path) {
-        const match = c.manifest_path.match(/_r(\d+)_c(\d+)\.png$/);
-        if (match) displayTitle = `CELL ${match[1]}-${match[2]}`;
-    }
+    let displayTitle = getDisplayTitle(c);
 
     const pred = (c.predictions && c.predictions.length > 0) ? c.predictions[0] : null;
     let isAccepted = false;
@@ -585,14 +595,14 @@ function getCardInnerHtml(c) {
         </div>
 
         <div class="bg-gray-50 px-3 py-2 border-b ${borderColor} flex justify-between items-center">
-            <span class="text-xs font-bold text-gray-700 break-all" title="CELL ${c.id}">${displayTitle}</span>
+            <span class="text-xs font-bold text-gray-700 break-all" title="${c.component_type} ${c.id}">${displayTitle}</span>
             ${sourceBadge}
         </div>
         
         <div class="p-3 flex-1 flex flex-col">
             <!-- Image -->
             <div class="w-full h-24 bg-gray-100 rounded border border-gray-200 mb-3 flex items-center justify-center overflow-hidden">
-                <img src="/cell-image/${c.id}" alt="Cell Image" class="max-w-full max-h-full object-contain cursor-pointer hover:scale-105 transition transform" onclick="window.open('/cell-image/${c.id}', '_blank')">
+                <img src="/cell-image/${c.id}" alt="Component Image" class="max-w-full max-h-full object-contain cursor-pointer hover:scale-105 transition transform" onclick="window.open('/cell-image/${c.id}', '_blank')">
             </div>
             <!-- Details -->
             <div class="flex-1 min-w-0 flex flex-col">
@@ -650,12 +660,12 @@ window.submitFeedback = async function (predId, componentId) {
             })
         });
 
-        // Refresh all cells silently to grab cascading Hash Matches
+        // Refresh visible review units silently after feedback.
         if (currentDocumentId) {
             const freshRes = await fetch(`/components/${currentDocumentId}?t=${new Date().getTime()}`);
             if (freshRes.ok) {
                 const allComps = await freshRes.json();
-                cells = allComps.filter(c => c.component_type === 'CELL');
+                cells = allComps.filter(isReviewableComponent);
                 
                 const sourceVal = document.getElementById('filter-source') ? document.getElementById('filter-source').value : 'all';
                 const filterVal = document.getElementById('filter-confidence') ? document.getElementById('filter-confidence').value : 'all';
@@ -725,7 +735,7 @@ window.submitFeedback = async function (predId, componentId) {
 }
 
 window.acceptAllFiltered = async function () {
-    if (!confirm("Are you sure you want to accept the current values for all displayed cells?")) return;
+    if (!confirm("Are you sure you want to accept the current values for all displayed review units?")) return;
 
     const filterVal = document.getElementById('filter-confidence').value;
 

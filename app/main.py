@@ -15,6 +15,7 @@ from piply_opdf.config import Config
 
 config = Config()
 UPLOAD_DIR = config.get("environment.upload_dir", "uploads")
+REVIEWABLE_COMPONENT_TYPES = ["CELL", "KEY_VALUE", "WORD"]
 
 # Create database tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -285,24 +286,24 @@ async def delete_document(document_id: int, db: Session = Depends(database.get_d
 
 @app.get("/cell-image/{component_id}")
 async def get_cell_image(component_id: int, db: Session = Depends(database.get_db)):
-    """Serve the cropped cell image file."""
+    """Serve the cropped review-unit image file."""
     comp = db.query(models.Component).filter(models.Component.id == component_id).first()
     if not comp:
         raise HTTPException(status_code=404, detail="Component not found")
     if not comp.manifest_path or not os.path.exists(comp.manifest_path):
-        raise HTTPException(status_code=404, detail="Cell image not found")
+        raise HTTPException(status_code=404, detail="Component image not found")
     return FileResponse(comp.manifest_path, media_type="image/png")
 
 @app.post("/ocr-cell/{component_id}", response_model=schemas.ComponentResponse)
 async def run_ocr_cell(component_id: int, db: Session = Depends(database.get_db)):
-    """Run 3-Layer OCR on a specific cell component."""
+    """Run OCR on a specific review-unit component."""
     comp = db.query(models.Component).filter(models.Component.id == component_id).first()
     if not comp:
         raise HTTPException(status_code=404, detail="Component not found")
-    if comp.component_type != "CELL":
-        raise HTTPException(status_code=400, detail="Component is not a cell")
+    if comp.component_type not in REVIEWABLE_COMPONENT_TYPES:
+        raise HTTPException(status_code=400, detail="Component is not reviewable")
     if not comp.manifest_path or not os.path.exists(comp.manifest_path):
-        raise HTTPException(status_code=404, detail="Cell image not found on disk")
+        raise HTTPException(status_code=404, detail="Component image not found on disk")
     
     from app import ocr_service
     ocr_res = ocr_service.extract_cell_text(comp.manifest_path, db)
@@ -315,30 +316,32 @@ async def run_ocr_cell(component_id: int, db: Session = Depends(database.get_db)
         if existing:
             existing.predicted_text = ocr_res.text
             existing.confidence = ocr_res.confidence
+            existing.source = ocr_res.source
         else:
             db_pred = models.OCRPrediction(
                 component_id=component_id,
                 predicted_text=ocr_res.text,
-                confidence=ocr_res.confidence
+                confidence=ocr_res.confidence,
+                source=ocr_res.source
             )
             db.add(db_pred)
         db.commit()
-    
-    return {
-        "text": ocr_res.text if ocr_res else "",
-        "confidence": ocr_res.confidence if ocr_res else 0,
-        "source": ocr_res.source if ocr_res else "none"
-    }
+
+    from sqlalchemy.orm import joinedload
+    comp = db.query(models.Component).options(
+        joinedload(models.Component.predictions)
+    ).filter(models.Component.id == component_id).first()
+    return comp
 
 @app.post("/ocr-all/{document_id}")
 async def ocr_all_cells(document_id: int, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db)):
-    """Run OCR on all CELL components of a document in background."""
+    """Run OCR on all reviewable cropped components of a document in background."""
     cells = db.query(models.Component).filter(
         models.Component.document_id == document_id,
-        models.Component.component_type == "CELL"
+        models.Component.component_type.in_(REVIEWABLE_COMPONENT_TYPES)
     ).all()
     if not cells:
-        raise HTTPException(status_code=404, detail="No cells found for this document")
+        raise HTTPException(status_code=404, detail="No reviewable components found for this document")
     
     background_tasks.add_task(services.run_ocr_on_cells, document_id, db)
     return {"status": "started", "cell_count": len(cells)}

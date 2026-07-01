@@ -167,9 +167,10 @@ piply-opdf --help
 | 10 | Lightweight ML Engine (Feature Clustering) | ✅ Complete |
 
 **Batch 2 implementations:**
-- ML Cache implemented utilizing `pHash`, `dHash`, HOG features, and SSIM to bypass OCR when encountering visually identical cell structures.
-- SQLite-backed Knowledge Base (`piply_opdf.db`) using SQLAlchemy.
-- Propagates human-verified values to identical cells (Hash Match).
+- Integrated Exact Hash Matching logic to bypass OCR when encountering visually identical cell structures.
+- SQLite-backed Knowledge Base (`piply_opdf.db`) using SQLAlchemy, storing all components, predictions, and human feedback.
+- Propagates human-verified values to identical components (Hash Match).
+- Removed legacy ML heuristics in favor of precise hash caching.
 - Fallback to OCR engines (PaddleOCR, Tesseract) if confidence is too low or layout is unrecognized.
 
 ---

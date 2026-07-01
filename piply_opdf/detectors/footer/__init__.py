@@ -25,27 +25,32 @@ class FooterDetector:
         h_72 = page.rect.height
         footer_y_limit = h_72 * self.bottom_margin_ratio
         
-        footers = []
+        footer_blocks = []
         blocks = page.get_text("blocks")
-        
-        footer_idx = 1
         for b in blocks:
-            x0, y0, x1, y1, text, block_type, block_no = b
-            if block_type == 0: # text block
-                if y0 >= footer_y_limit:
-                    # Valid footer
-                    tx0 = int(x0 * self.scale)
-                    ty0 = int(y0 * self.scale)
-                    tx1 = int(x1 * self.scale)
-                    ty1 = int(y1 * self.scale)
-                    
-                    footers.append({
-                        "id": f"footer_{footer_idx:03d}",
-                        "type": "footer",
-                        "page": page_num,
-                        "bbox": [tx0, ty0, tx1 - tx0, ty1 - ty0],
-                        "confidence": 0.95
-                    })
-                    footer_idx += 1
+            if b[6] == 0 and b[1] >= footer_y_limit:
+                footer_blocks.append(b)
+                
+        footers = []
+        if footer_blocks:
+            x0 = min(b[0] for b in footer_blocks)
+            y0 = min(b[1] for b in footer_blocks)
+            x1 = max(b[2] for b in footer_blocks)
+            y1 = max(b[3] for b in footer_blocks)
+            text = "\n".join(b[4].strip() for b in footer_blocks)
+            
+            tx0 = int(x0 * self.scale)
+            ty0 = int(y0 * self.scale)
+            tx1 = int(x1 * self.scale)
+            ty1 = int(y1 * self.scale)
+            
+            footers.append({
+                "id": "footer_001",
+                "type": "footer",
+                "page": page_num,
+                "bbox": [tx0, ty0, tx1 - tx0, ty1 - ty0],
+                "text": text,
+                "confidence": 0.95
+            })
                     
         return footers

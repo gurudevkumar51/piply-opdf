@@ -75,7 +75,27 @@ For most commands, you can pass the following optional flags:
 **Methods Executed**:
 - `Document.process_layout()`
 
-### 8. `version`
+### 8. `detect-key-values`
+**Description**: Detects key-value pairs.
+**Usage**: `piply-opdf detect-key-values <file>`
+**Functionality**: Detects structured key-value configurations inside the document outside of standard tables.
+**Methods Executed**:
+- `Document.process_layout()`
+
+### 9. `detect-paragraphs`
+**Description**: Detects paragraph and textual blocks.
+**Usage**: `piply-opdf detect-paragraphs <file>`
+**Functionality**: Detects distinct text groups utilizing block analysis while excluding tables and key-value bounding boxes.
+**Methods Executed**:
+- `Document.process_layout()`
+
+### 10. `ocr`
+**Description**: Runs OCR processing on extracted components.
+**Usage**: `piply-opdf ocr <file>`
+**Functionality**: Extracts strings and performs OCR processing across PaddleOCR/Tesseract.
+**Output**: `ocr_result.json` containing confidence scores and text properties.
+
+### 11. `version`
 **Description**: Displays the current `piply-opdf` library version.
 **Usage**: `piply-opdf version`
 
@@ -104,5 +124,4 @@ To start the Web Server:
 conda run -n py313_piply_opdf python run_server.py
 ```
 Or you can use the provided Windows batch scripts:
-- `run.bat`: Quick-starts the FastAPI web server
-- `run_web.bat`: (Optional alternate script)
+- `run_web.bat`: Quick-starts the FastAPI web server with automatic live-reloading.

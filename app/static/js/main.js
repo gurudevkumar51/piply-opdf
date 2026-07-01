@@ -3,6 +3,7 @@ let components = [];
 let currentScale = 1.0;
 let currentPage = 1;
 let totalPages = 1;
+const REVIEWABLE_TYPES = ['CELL', 'KEY_VALUE', 'WORD'];
 
 // Elements
 const fileUpload = document.getElementById('file-upload');
@@ -15,6 +16,10 @@ const componentList = document.getElementById('component-list');
 const ocrPanel = document.getElementById('ocr-panel');
 const currentPageSpan = document.getElementById('current-page');
 const docSelector = document.getElementById('doc-selector');
+
+function isReviewableComponent(component) {
+    return component && REVIEWABLE_TYPES.includes(component.component_type);
+}
 
 async function loadDocuments() {
     try {
@@ -278,43 +283,70 @@ async function loadComponents() {
     const res = await fetch(`/components/${currentDocumentId}`);
     components = await res.json();
     
-    // Auto-select a tab that has components
-    const types = ['TABLE', 'BORDERLESS_TABLE', 'HEADER', 'FOOTER'];
-    let selectedType = 'TABLE';
-    for (let t of types) {
-        if (components.some(c => c.component_type === t)) {
-            selectedType = t;
-            break;
-        }
-    }
+    // Group components into a tree structure
+    const compMap = new Map();
+    const rootComps = [];
     
-    // Update active tab button visually
-    document.querySelectorAll('.tab-btn').forEach(b => {
-        if (b.dataset.type === selectedType) {
-            b.className = "tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap";
+    components.forEach(c => {
+        compMap.set(c.id, { ...c, children: [] });
+    });
+    
+    components.forEach(c => {
+        if (c.parent_id && compMap.has(c.parent_id)) {
+            compMap.get(c.parent_id).children.push(compMap.get(c.id));
         } else {
-            b.className = "tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap";
+            rootComps.push(compMap.get(c.id));
         }
     });
+    
+    // Auto-select a tab that has root components
+    const availableRootTypes = [...new Set(rootComps.map(c => c.component_type))];
+    const preferredOrder = ['TABLE', 'BORDERLESS_TABLE', 'KEY_VALUE', 'PARAGRAPH', 'SENTENCE', 'HEADER', 'FOOTER'];
+    
+    // Generate dynamic tabs
+    const tabsContainer = document.getElementById('dynamic-tabs');
+    tabsContainer.innerHTML = '';
+    
+    if (availableRootTypes.length === 0) {
+        componentList.innerHTML = '<div class="text-gray-500 text-sm text-center mt-10">No components found.</div>';
+        drawBBoxes();
+        return;
+    }
+    
+    availableRootTypes.sort((a, b) => {
+        const ia = preferredOrder.indexOf(a);
+        const ib = preferredOrder.indexOf(b);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    
+    let selectedType = availableRootTypes[0];
+    
+    availableRootTypes.forEach(type => {
+        const btn = document.createElement('button');
+        btn.dataset.type = type;
+        btn.textContent = type.replace('_', ' ');
+        btn.className = (type === selectedType) 
+            ? "tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap"
+            : "tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap";
+            
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.className = "tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap";
+            });
+            e.target.className = "tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap";
+            renderComponentList(type, rootComps);
+        });
+        
+        tabsContainer.appendChild(btn);
+    });
 
-    renderComponentList(selectedType);
+    renderComponentList(selectedType, rootComps);
     drawBBoxes();
 }
 
-// Tabs
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        document.querySelectorAll('.tab-btn').forEach(b => {
-            b.className = "tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap";
-        });
-        e.target.className = "tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap";
-        renderComponentList(e.target.dataset.type);
-    });
-});
-
-function renderComponentList(type) {
+function renderComponentList(type, rootComps) {
     componentList.innerHTML = '';
-    const filtered = components.filter(c => c.component_type === type);
+    const filtered = rootComps.filter(c => c.component_type === type);
     
     if (filtered.length === 0) {
         componentList.innerHTML = '<div class="text-gray-500 text-sm text-center mt-10">No components of this type found.</div>';
@@ -322,38 +354,125 @@ function renderComponentList(type) {
     }
 
     filtered.forEach(c => {
-        let displayTitle = `${c.component_type} ${c.id}`;
-        if (c.component_type === 'CELL' && c.manifest_path) {
-            const match = c.manifest_path.match(/_r(\d+)_c(\d+)\.png$/);
-            if (match) {
-                displayTitle = `CELL ${match[1]}-${match[2]}`;
-            }
-        }
-
-        const div = document.createElement('div');
-        div.className = "p-3 border border-gray-200 rounded hover:bg-blue-50 cursor-pointer transition";
-        div.innerHTML = `
-            <div class="font-semibold text-sm text-gray-800">${displayTitle}</div>
-            <div class="text-xs text-gray-500 mt-1">Page: ${c.page_no} | Conf: ${(c.confidence * 100).toFixed(1)}%</div>
-        `;
-        div.addEventListener('click', () => {
-            // Auto switch to Enhanced mode so bbox is visible
-            const viewModeSelect = document.getElementById('view-mode');
-            if (viewModeSelect.value !== 'enhanced') {
-                viewModeSelect.value = 'enhanced';
-                window.updateViewer();
-            }
-
-            highlightBBox(c.id);
-            if(c.page_no !== currentPage) {
-                currentPage = c.page_no;
-                currentPageSpan.textContent = currentPage;
-                loadPageImage();
-            }
-            renderOCRPanel(c);
-        });
-        componentList.appendChild(div);
+        const rootDiv = renderComponentNode(c, 0);
+        componentList.appendChild(rootDiv);
     });
+}
+
+function renderComponentNode(c, depth) {
+    const wrapper = document.createElement('div');
+    wrapper.className = `flex flex-col ml-${depth * 4}`;
+    if (depth > 0) wrapper.style.marginLeft = `${depth}rem`;
+
+    const itemDiv = document.createElement('div');
+    itemDiv.className = 'component-item bg-white p-2 rounded shadow-sm border border-gray-200 cursor-pointer hover:border-blue-300 transition my-1';
+    itemDiv.dataset.id = c.id;
+    
+    let displayTitle = `${c.component_type} ${c.id}`;
+    if (c.component_type === 'CELL' && c.manifest_path) {
+        const match = c.manifest_path.match(/_r(\d+)_c(\d+)\.png$/);
+        if (match) {
+            displayTitle = `CELL ${match[1]}-${match[2]}`;
+        }
+    }
+    
+    const pred = (c.predictions && c.predictions.length > 0) ? c.predictions[0] : null;
+    const textPreview = pred && pred.predicted_text
+        ? `<div class="text-xs text-gray-700 mt-1 line-clamp-2">${escapeHtml(pred.predicted_text)}</div>`
+        : '';
+        
+    let confBadge = '';
+    if (pred && pred.is_human) {
+         confBadge = `<span class="bg-green-100 text-green-800 px-1 py-0.5 rounded ml-2">Human</span>`;
+    } else if (c.confidence) {
+        const perc = Math.round(c.confidence * 100);
+        let colorClass = 'bg-gray-100 text-gray-600';
+        if (perc < 80) colorClass = 'bg-red-100 text-red-800';
+        else if (perc < 95) colorClass = 'bg-yellow-100 text-yellow-800';
+        confBadge = `<span class="${colorClass} px-1 py-0.5 rounded ml-2">${perc}%</span>`;
+    }
+
+    let toggleIcon = '';
+    const hasChildren = c.children && c.children.length > 0;
+    if (hasChildren) {
+        toggleIcon = `<span class="toggle-icon mr-2 text-gray-500 hover:text-gray-800" data-expanded="false">▶</span>`;
+    }
+
+    itemDiv.innerHTML = `
+        <div class="flex justify-between items-center">
+            <span class="font-bold text-gray-800 flex items-center">
+                ${toggleIcon}
+                ${displayTitle} ${hasChildren ? `<span class="text-xs text-gray-400 ml-1">(${c.children.length} children)</span>` : ''}
+            </span>
+            <div class="flex items-center text-xs">
+                Pg ${c.page_no}
+                ${confBadge}
+            </div>
+        </div>
+        ${textPreview}
+    `;
+
+    itemDiv.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // Remove active class from all items
+        document.querySelectorAll('.component-item').forEach(el => el.classList.remove('ring-2', 'ring-blue-500'));
+        itemDiv.classList.add('ring-2', 'ring-blue-500');
+        
+        renderOCRPanel(c);
+        
+        // Auto switch to Enhanced mode so bbox is visible
+        const viewModeSelect = document.getElementById('view-mode');
+        if (viewModeSelect && viewModeSelect.value !== 'enhanced') {
+            viewModeSelect.value = 'enhanced';
+            window.updateViewer();
+        }
+        
+        highlightBBox(c.id);
+        
+        if (c.page_no !== currentPage) {
+            currentPage = c.page_no;
+            currentPageSpan.textContent = currentPage;
+            loadPageImage();
+        }
+    });
+    
+    wrapper.appendChild(itemDiv);
+
+    if (hasChildren) {
+        const childrenWrapper = document.createElement('div');
+        childrenWrapper.className = 'border-l-2 border-gray-200 ml-2 pl-2 mt-1 hidden';
+        c.children.forEach(child => {
+            childrenWrapper.appendChild(renderComponentNode(child, depth + 1));
+        });
+        wrapper.appendChild(childrenWrapper);
+        
+        const iconEl = itemDiv.querySelector('.toggle-icon');
+        iconEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isExpanded = iconEl.dataset.expanded === "true";
+            if (isExpanded) {
+                childrenWrapper.classList.add('hidden');
+                iconEl.dataset.expanded = "false";
+                iconEl.textContent = "▶";
+            } else {
+                childrenWrapper.classList.remove('hidden');
+                iconEl.dataset.expanded = "true";
+                iconEl.textContent = "▼";
+            }
+        });
+    }
+    
+    return wrapper;
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 function drawBBoxes() {
@@ -396,12 +515,12 @@ function highlightBBox(id) {
 }
 
 function renderOCRPanel(component) {
-    // Cell image section (always show for CELL components)
+    // Cropped image section for OCR/review units.
     let imageCropHtml = '';
-    if (component.component_type === 'CELL') {
+    if (isReviewableComponent(component)) {
         imageCropHtml = `
         <div class="mb-4">
-            <span class="text-xs font-semibold text-gray-500 uppercase">Cell Image</span>
+            <span class="text-xs font-semibold text-gray-500 uppercase">Component Image</span>
             <div class="mt-1 border border-gray-300 rounded shadow-sm overflow-hidden bg-gray-100 flex justify-center p-2">
                 <img src="/cell-image/${component.id}" style="max-width: 100%; max-height: 150px; object-fit: contain;"
                      onerror="this.parentElement.innerHTML='<span class=\\'text-xs text-gray-400\\'>Image not available</span>'">
@@ -412,11 +531,11 @@ function renderOCRPanel(component) {
     if (!component.predictions || component.predictions.length === 0) {
         // No OCR data yet - show image and offer to run OCR
         let runOcrBtn = '';
-        if (component.component_type === 'CELL') {
+        if (isReviewableComponent(component)) {
             runOcrBtn = `
             <button class="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded shadow text-sm font-bold transition"
                     onclick="runOcrOnCell(${component.id})">
-                🔍 Run OCR on this Cell
+                Run OCR on this component
             </button>`;
         }
         ocrPanel.innerHTML = `
@@ -482,12 +601,10 @@ async function runOcrOnCell(componentId) {
             }
         } else {
             btn.textContent = '❌ OCR Failed';
-            setTimeout(() => { btn.textContent = '🔍 Run OCR on this Cell'; btn.disabled = false; }, 2000);
         }
     } catch (e) {
         console.error('OCR request failed', e);
         btn.textContent = '❌ Error';
-        setTimeout(() => { btn.textContent = '🔍 Run OCR on this Cell'; btn.disabled = false; }, 2000);
     }
 }
 

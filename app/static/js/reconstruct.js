@@ -75,110 +75,148 @@ window.nextPage = function() {
 function renderManifest() {
     if (!manifestData) return;
     
-    let html = ``;
+    let allComponents = [];
     
-    // Helper to render a generic table
-    const renderTableGroup = (tables, title) => {
-        if (!tables || tables.length === 0) return '';
-        let out = `<h2 class="text-lg font-bold text-gray-800 mb-4 mt-6 border-b pb-2">${title}</h2>`;
+    if (manifestData.tables) manifestData.tables.forEach(t => allComponents.push({...t, _category: 'Table'}));
+    if (manifestData.borderless_tables) manifestData.borderless_tables.forEach(t => allComponents.push({...t, _category: 'Borderless Table'}));
+    if (manifestData.key_values) manifestData.key_values.forEach(kv => allComponents.push({...kv, _category: 'Key-Value'}));
+    if (manifestData.paragraphs) manifestData.paragraphs.forEach(p => allComponents.push({...p, _category: 'Paragraph'}));
+    if (manifestData.sentences) manifestData.sentences.forEach(s => allComponents.push({...s, _category: 'Sentence'}));
+    if (manifestData.headers) manifestData.headers.forEach(h => allComponents.push({...h, _category: 'Header'}));
+    if (manifestData.footers) manifestData.footers.forEach(f => allComponents.push({...f, _category: 'Footer'}));
+    
+    if (allComponents.length === 0) {
+        contentArea.innerHTML = '<div class="text-center mt-20 text-gray-500">No layout structures found.</div>';
+        return;
+    }
+    
+    const parseBBox = (bbox) => {
+        if (!bbox) return null;
+        if (Array.isArray(bbox) && bbox.length >= 4) return bbox;
+        if (bbox.y !== undefined) return [bbox.x || 0, bbox.y, (bbox.x||0)+100, bbox.y+20];
+        return null;
+    };
+
+    const renderTableGroup = (t, styleStr) => {
+        let out = `<div style="${styleStr}" class="overflow-hidden bg-white text-xs border border-gray-300">`;
+        out += `<table class="w-full border-collapse">`;
         
-        tables.forEach(t => {
-            out += `<div class="mb-8">`;
-            out += `<div class="text-sm text-gray-500 mb-2">Page ${t.page}</div>`;
-            out += `<table class="reconstructed-table">`;
-            
-            // Extract all cells
-            const allCells = t.children.filter(c => c.type === 'CELL');
-            
-            const rowMap = {};
-            allCells.forEach(c => {
-                let rIdx = 0;
-                if (c.manifest_path) {
-                    const match = c.manifest_path.match(/_r(\d+)_/);
-                    if (match) rIdx = parseInt(match[1], 10);
-                }
-                // If it is already in a ROW child due to DB hierarchy (unlikely currently but future-proof)
-                if (c.parent_type === 'ROW' && c.row_idx !== undefined) rIdx = c.row_idx;
-                
-                if (!rowMap[rIdx]) rowMap[rIdx] = [];
-                rowMap[rIdx].push(c);
-            });
-            
-            const rowIndices = Object.keys(rowMap).map(Number).sort((a, b) => a - b);
-            
-            if (rowIndices.length === 0) {
-                 out += `<tr><td class="text-gray-400 italic text-sm py-2">No cells detected.</td></tr>`;
-            } else {
-                 rowIndices.forEach((rIdx, i) => {
-                     const isHeader = (i === 0);
-                     out += `<tr>`;
-                     let cells = rowMap[rIdx];
-                     
-                     // Sort cells by column index
-                     cells.sort((a, b) => {
-                         const ma = a.manifest_path ? a.manifest_path.match(/_c(\d+)\.png/) : null;
-                         const mb = b.manifest_path ? b.manifest_path.match(/_c(\d+)\.png/) : null;
-                         const ca = ma ? parseInt(ma[1], 10) : 0;
-                         const cb = mb ? parseInt(mb[1], 10) : 0;
-                         return ca - cb;
-                     });
-                     
-                     cells.forEach(cell => {
-                         out += renderCell(cell, isHeader);
-                     });
-                     out += `</tr>`;
-                 });
+        const allCells = t.children ? t.children.filter(c => c.type === 'CELL') : [];
+        const rowMap = {};
+        allCells.forEach(c => {
+            let rIdx = 0;
+            if (c.manifest_path) {
+                const match = c.manifest_path.match(/_r(\d+)_/);
+                if (match) rIdx = parseInt(match[1], 10);
             }
-            
-            out += `</table></div>`;
+            if (c.parent_type === 'ROW' && c.row_idx !== undefined) rIdx = c.row_idx;
+            if (!rowMap[rIdx]) rowMap[rIdx] = [];
+            rowMap[rIdx].push(c);
         });
         
+        const rowIndices = Object.keys(rowMap).map(Number).sort((a, b) => a - b);
+        
+        if (rowIndices.length === 0) {
+             out += `<tr><td class="text-gray-400 italic py-1 text-center border">No cells detected.</td></tr>`;
+        } else {
+             rowIndices.forEach((rIdx, i) => {
+                 out += `<tr>`;
+                 let cells = rowMap[rIdx];
+                 cells.sort((a, b) => {
+                     const ma = a.manifest_path ? a.manifest_path.match(/_c(\d+)\\.png/) : null;
+                     const mb = b.manifest_path ? b.manifest_path.match(/_c(\d+)\\.png/) : null;
+                     return (ma ? parseInt(ma[1], 10) : 0) - (mb ? parseInt(mb[1], 10) : 0);
+                 });
+                 cells.forEach(cell => {
+                     let text = cell.ocr ? cell.ocr.text : '';
+                     if (!text || text.trim() === '') text = '&nbsp;';
+                     
+                     let confClass = 'border border-gray-300 p-1';
+                     if (cell.ocr && cell.ocr.confidence < 0.8 && !cell.ocr.is_human) confClass += ' bg-red-50';
+                     else if (cell.ocr && cell.ocr.confidence < 0.95 && !cell.ocr.is_human) confClass += ' bg-yellow-50';
+                     
+                     out += `<td class="${confClass}">${text}</td>`;
+                 });
+                 out += `</tr>`;
+             });
+        }
+        
+        out += `</table></div>`;
         return out;
     };
     
-    function renderCell(cell, isHeader=false) {
-        let text = cell.ocr ? cell.ocr.text : '';
-        if (!text || text.trim() === '') {
-            text = '&nbsp;';
-        }
-        const conf = cell.ocr ? cell.ocr.confidence : 0;
+    let html = ``;
+    const pagesMap = {};
+    allComponents.forEach(c => {
+        if (!pagesMap[c.page]) pagesMap[c.page] = [];
+        pagesMap[c.page].push(c);
+    });
+    
+    const pageIndices = Object.keys(pagesMap).map(Number).sort((a,b)=>a-b);
+    
+    pageIndices.forEach(p => {
+        const comps = pagesMap[p];
+        let maxX = 0;
+        let maxY = 0;
         
-        let confClass = '';
-        if (cell.ocr && cell.ocr.is_human) {
-            confClass = 'bg-green-100 text-green-900 font-medium';
-        } else if (cell.ocr && conf < 0.8) {
-            confClass = 'cell-low-conf';
-        } else if (cell.ocr && conf < 0.95) {
-            confClass = 'cell-med-conf';
-        }
+        comps.forEach(c => {
+            const b = parseBBox(c.bbox);
+            if (b) {
+                if (b[2] > maxX) maxX = b[2];
+                if (b[3] > maxY) maxY = b[3];
+            }
+        });
         
-        const tag = isHeader ? 'th' : 'td';
-        return `<${tag} class="${confClass}">${text}</${tag}>`;
-    }
-    
-    html += renderTableGroup(manifestData.tables, "Tables");
-    html += renderTableGroup(manifestData.borderless_tables, "Borderless Tables");
-    
-    // We could render headers/footers too
-    if (manifestData.headers && manifestData.headers.length > 0) {
-        html += `<h2 class="text-lg font-bold text-gray-800 mb-4 mt-6 border-b pb-2">Headers</h2><ul>`;
-        manifestData.headers.forEach(h => {
-             html += `<li class="text-sm mb-2">Page ${h.page}: ${h.ocr ? h.ocr.text : (h.bbox ? 'Header Box' : 'Unknown')}</li>`;
+        maxX = Math.max(maxX * 1.05, 800);
+        maxY = Math.max(maxY * 1.05, 1000);
+        const aspectRatio = (maxX / maxY) || (1 / 1.414);
+        
+        html += `<div class="mb-10 mx-auto shadow-md bg-white relative border border-gray-200" style="width: 100%; aspect-ratio: ${aspectRatio};">`;
+        
+        comps.forEach(comp => {
+            const b = parseBBox(comp.bbox);
+            let styleStr = '';
+            if (b) {
+                const leftPct = (b[0] / maxX) * 100;
+                const topPct = (b[1] / maxY) * 100;
+                const wPct = ((b[2] - b[0]) / maxX) * 100;
+                styleStr = `position: absolute; left: ${leftPct}%; top: ${topPct}%; width: ${wPct}%;`;
+            } else {
+                styleStr = `position: relative; margin-bottom: 1rem; width: 100%;`;
+            }
+            
+            if (comp._category === 'Table' || comp._category === 'Borderless Table') {
+                 html += renderTableGroup(comp, styleStr);
+            } else if (comp._category === 'Key-Value') {
+                let text = comp.ocr ? comp.ocr.text : (comp.text || 'Not extracted');
+                let confClass = 'text-gray-800';
+                if (comp.ocr && comp.ocr.is_human) confClass = 'text-green-800 font-bold';
+                else if (comp.ocr && comp.ocr.confidence < 0.8) confClass = 'text-red-600';
+                
+                html += `<div style="${styleStr}" class="font-medium text-sm ${confClass}">
+                    ${text}
+                </div>`;
+            } else if (comp._category === 'Paragraph' || comp._category === 'Sentence') {
+                let text = '';
+                if (comp.words && comp.words.length > 0) {
+                    const words = comp.words.map(w => w.ocr ? w.ocr.text : w.text).filter(t => t);
+                    text = words.join(" ");
+                }
+                if (!text) text = comp.ocr ? comp.ocr.text : (comp.text || 'Not extracted');
+                
+                html += `<div style="${styleStr}" class="text-gray-800 leading-relaxed text-justify text-sm">
+                    ${text}
+                </div>`;
+            } else if (comp._category === 'Header' || comp._category === 'Footer') {
+                let text = comp.ocr ? comp.ocr.text : (comp.text || comp._category);
+                html += `<div style="${styleStr}" class="text-gray-400 text-xs text-center uppercase tracking-wider">
+                    ${text}
+                </div>`;
+            }
         });
-        html += `</ul>`;
-    }
-    
-    if (manifestData.footers && manifestData.footers.length > 0) {
-        html += `<h2 class="text-lg font-bold text-gray-800 mb-4 mt-6 border-b pb-2">Footers</h2><ul>`;
-        manifestData.footers.forEach(f => {
-             html += `<li class="text-sm mb-2">Page ${f.page}: ${f.ocr ? f.ocr.text : (f.bbox ? 'Footer Box' : 'Unknown')}</li>`;
-        });
-        html += `</ul>`;
-    }
-    
-    if (html === '') {
-        html = '<div class="text-center mt-20 text-gray-500">No layout structures found.</div>';
-    }
+        
+        html += `</div>`;
+    });
     
     contentArea.innerHTML = html;
 }

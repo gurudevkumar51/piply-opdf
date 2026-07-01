@@ -79,31 +79,22 @@ flowchart TD
         D1[Table]
         D2[Paragraph]
         D3[Header/Footer]
+        D4[Key-Value]
     end
     D -.-> Detectors
     
     D --> E[Phase 4: Extraction & Segmentation]
-    E --> F[Phase 5: 7-Level ML Pipeline]
+    E --> F[Phase 5: Extraction & Caching Pipeline]
     
-    subgraph 7-Level ML Pipeline
+    subgraph Pipeline
         F1{Level 1: Exact Hash Match?}
         F1 -- Yes --> F2[Return Verified Text]
-        F1 -- No --> F3{Level 2: Near Hash Match?}
-        F3 -- Yes --> F4[Return Verified Text]
-        F3 -- No --> F5{Level 3: Feature Similarity?}
-        F5 -- Yes --> F6{Level 4: SSIM Verify?}
-        F6 -- Yes --> F7[Return Verified Text]
-        F6 -- No --> F8[Level 5: Heuristics & Router]
-        F5 -- No --> F8
-        F8 --> F9{Specialized Models}
-        F9 -- High Conf --> F10[Return ML Text]
-        F9 -- Low Conf --> F11[Level 6: PaddleOCR]
+        F1 -- No --> F3[Level 2: PaddleOCR / Tesseract]
+        F3 --> F4[Store in SQLite DB]
     end
-    F -.-> F1
-    
-    F --> G[Level 7: Human Review UI]
-    G -- Feedback --> H[(OCR Knowledge Base)]
-    H -.-> F1
+    F --> Pipeline
+    Pipeline --> G[Phase 6: Human Review UI]
+    G --> H[Phase 7: Document Reconstruction]
 ```
 
 ---

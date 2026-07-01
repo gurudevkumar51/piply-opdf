@@ -21,7 +21,7 @@ class Component(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"))
-    component_type = Column(String, index=True) # TABLE, BORDERLESS_TABLE, ROW, COL, CELL, TITLE, HEADER, FOOTER, PARAGRAPH
+    component_type = Column(String, index=True) # TABLE, BORDERLESS_TABLE, ROW, COLUMN, CELL, TITLE, HEADER, FOOTER, KEY_VALUE, PARAGRAPH, WORD
     page_no = Column(Integer)
     bbox = Column(String) # JSON string [x0, y0, x1, y1]
     confidence = Column(Float, default=1.0)

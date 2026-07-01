@@ -50,9 +50,9 @@ class ComponentResponse(ComponentBase):
 
 class DocumentBase(BaseModel):
     filename: str
-    file_type: str
-    page_count: int
-    status: str
+    file_type: Optional[str] = None
+    page_count: int = 0
+    status: str = "uploaded"
 
 class DocumentCreate(DocumentBase):
     pass

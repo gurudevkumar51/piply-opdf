@@ -48,6 +48,8 @@ from piply_opdf.detectors.table import TableDetector
 from piply_opdf.detectors.borderless_table import BorderlessTableDetector
 from piply_opdf.detectors.header import HeaderDetector
 from piply_opdf.detectors.footer import FooterDetector
+from piply_opdf.detectors.key_value import KeyValueDetector
+from piply_opdf.detectors.paragraph import ParagraphDetector
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +197,8 @@ class Document:
         borderless_detector = BorderlessTableDetector()
         header_detector = HeaderDetector()
         footer_detector = FooterDetector()
+        key_value_detector = KeyValueDetector()
+        paragraph_detector = ParagraphDetector()
         
         out_dir = self.work_dir / "layouts"
         debug_dir = self.work_dir / "debug"
@@ -207,6 +211,9 @@ class Document:
         self.borderless_tables = []
         self.headers = []
         self.footers = []
+        self.key_values = []
+        self.paragraphs = []
+        self.sentences = []
         
         for page_idx, img in iter_pages(source, dpi=300):
             page_num = page_idx + 1
@@ -267,8 +274,102 @@ class Document:
                 previous_table_cols = None
                 previous_table_id = None
                 
+            # --- STAGE 3: Header Detection (P3) ---
+            headers = header_detector.detect_headers(str(self.source_path), page_num)
+            self._save_component_crops(img, headers, out_dir, page_num, "headers")
+            self.headers.extend(headers)
+            
+            # --- STAGE 4: Footer Detection (P4) ---
+            footers = footer_detector.detect_footers(str(self.source_path), page_num)
+            self._save_component_crops(img, footers, out_dir, page_num, "footers")
+            self.footers.extend(footers)
+
+            # Create tight bounding boxes from actual table cells to avoid excluding surrounding text
+            table_bboxes = []
+            for t in self.tables:
+                if t.page == page_num:
+                    if t.cells:
+                        min_x = min(c.bbox.x for c in t.cells)
+                        min_y = min(c.bbox.y for c in t.cells)
+                        max_x = max(c.bbox.x + c.bbox.width for c in t.cells)
+                        max_y = max(c.bbox.y + c.bbox.height for c in t.cells)
+                        padding = 5
+                        table_bboxes.append((
+                            max(0, min_x - padding),
+                            max(0, min_y - padding),
+                            max_x - min_x + 2 * padding,
+                            max_y - min_y + 2 * padding
+                        ))
+                    else:
+                        table_bboxes.append(t.bbox.to_tuple())
+
+            # --- STAGE 5: Key-Value Detection (P5) ---
+            key_values = key_value_detector.detect_key_values(
+                str(self.source_path),
+                page_num,
+                table_bboxes,
+            )
+            self._save_component_crops(img, key_values, out_dir, page_num, "key_values")
+            self.key_values.extend(key_values)
+
+            # --- STAGE 6: Paragraph Detection (P6) ---
+            paragraph_exclusions = table_bboxes + [
+                tuple(kv["bbox"]) for kv in key_values if kv.get("bbox")
+            ] + [
+                tuple(h["bbox"]) for h in headers if h.get("bbox")
+            ] + [
+                tuple(f["bbox"]) for f in footers if f.get("bbox")
+            ]
+            p_results = paragraph_detector.detect_paragraphs(
+                str(self.source_path),
+                page_num,
+                paragraph_exclusions,
+            )
+            paragraphs = p_results["paragraphs"]
+            sentences = p_results["sentences"]
+            
+            self._save_component_crops(img, paragraphs, out_dir, page_num, "paragraphs")
+            for paragraph in paragraphs:
+                self._save_component_crops(
+                    img,
+                    paragraph.get("words", []),
+                    out_dir,
+                    page_num,
+                    "words",
+                    parent_id=paragraph.get("id"),
+                )
+            self.paragraphs.extend(paragraphs)
+            
+            self._save_component_crops(img, sentences, out_dir, page_num, "sentences")
+            for sentence in sentences:
+                self._save_component_crops(
+                    img,
+                    sentence.get("words", []),
+                    out_dir,
+                    page_num,
+                    "words",
+                    parent_id=sentence.get("id"),
+                )
+            self.sentences.extend(sentences)
+            
+            # Build all exclusions for Borderless Table
+            from piply_opdf.models.grid import GridBoundingBox
+            all_exclusions = list(table_boxes)
+            for kv in key_values:
+                if kv.get("bbox"):
+                    x, y, w, h = kv["bbox"]
+                    all_exclusions.append(GridBoundingBox(x=x, y=y, width=w, height=h))
+            for p in paragraphs:
+                if p.get("bbox"):
+                    x, y, w, h = p["bbox"]
+                    all_exclusions.append(GridBoundingBox(x=x, y=y, width=w, height=h))
+            for s in sentences:
+                if s.get("bbox"):
+                    x, y, w, h = s["bbox"]
+                    all_exclusions.append(GridBoundingBox(x=x, y=y, width=w, height=h))
+
             # --- STAGE 2: Borderless Table Detection (P2) ---
-            borderless = borderless_detector.detect_tables(str(self.source_path), page_num, table_boxes)
+            borderless = borderless_detector.detect_tables(str(self.source_path), page_num, all_exclusions)
             self.borderless_tables.extend(borderless)
             
             import cv2
@@ -391,13 +492,6 @@ class Document:
                     with open(b_dir / "manifest.json", "w") as f:
                         json.dump(b_manifest.model_dump(), f, indent=2)
                         
-            # --- STAGE 3: Header Detection (P3) ---
-            headers = header_detector.detect_headers(str(self.source_path), page_num)
-            self.headers.extend(headers)
-            
-            # --- STAGE 4: Footer Detection (P4) ---
-            footers = footer_detector.detect_footers(str(self.source_path), page_num)
-            self.footers.extend(footers)
             
             # Optional: Save P2/P3/P4 metadata to JSON for the page
             import json
@@ -408,7 +502,10 @@ class Document:
                 json.dump({
                     "borderless_tables": [b.model_dump() for b in borderless],
                     "headers": headers,
-                    "footers": footers
+                    "footers": footers,
+                    "key_values": key_values,
+                    "paragraphs": paragraphs,
+                    "sentences": sentences
                 }, f, indent=2)
                 
         self.generate_master_manifest()
@@ -427,7 +524,10 @@ class Document:
             "tables": [t.model_dump() if hasattr(t, 'model_dump') else t for t in self.tables],
             "borderless_tables": [bt.model_dump() if hasattr(bt, 'model_dump') else bt for bt in self.borderless_tables],
             "headers": [h.model_dump() if hasattr(h, 'model_dump') else h for h in self.headers],
-            "footers": [f.model_dump() if hasattr(f, 'model_dump') else f for f in self.footers]
+            "footers": [f.model_dump() if hasattr(f, 'model_dump') else f for f in self.footers],
+            "key_values": [kv.model_dump() if hasattr(kv, 'model_dump') else kv for kv in self.key_values],
+            "paragraphs": [p.model_dump() if hasattr(p, 'model_dump') else p for p in self.paragraphs],
+            "sentences": [s.model_dump() if hasattr(s, 'model_dump') else s for s in self.sentences]
         }
         
         with open(out, 'w', encoding='utf-8') as f:
@@ -474,6 +574,76 @@ class Document:
     def enhanced_path(self) -> Path | None:
         return self._enhanced_path
 
+
+    def _component_bboxes(self, *component_groups: Any) -> list[tuple[int, int, int, int]]:
+        bboxes: list[tuple[int, int, int, int]] = []
+
+        for group in component_groups:
+            if not group:
+                continue
+            for component in group:
+                bbox = None
+                if hasattr(component, "bbox"):
+                    bbox = component.bbox
+                elif hasattr(component, "to_tuple"):
+                    bbox = component.to_tuple()
+                elif isinstance(component, dict):
+                    bbox = component.get("bbox")
+
+                if hasattr(bbox, "to_tuple"):
+                    bbox = bbox.to_tuple()
+
+                if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+                    bboxes.append(tuple(int(v) for v in bbox))
+
+        return bboxes
+
+    def _save_component_crops(
+        self,
+        image: Any,
+        components: list[dict[str, Any]],
+        out_dir: Path,
+        page_num: int,
+        folder: str,
+        parent_id: str | None = None,
+    ) -> None:
+        import cv2
+        import json
+
+        if not components:
+            return
+
+        page_dir = out_dir / f"page_{page_num}" / folder
+        page_dir.mkdir(parents=True, exist_ok=True)
+        img_h, img_w = image.shape[:2]
+
+        for idx, component in enumerate(components, start=1):
+            bbox = component.get("bbox")
+            if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                continue
+
+            x, y, w, h = [int(v) for v in bbox]
+            pad = 2 if folder == "words" else 4
+            x1 = max(0, x - pad)
+            y1 = max(0, y - pad)
+            x2 = min(img_w, x + w + pad)
+            y2 = min(img_h, y + h + pad)
+
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            component_id = component.get("id") or f"{folder}_{page_num:03d}_{idx:03d}"
+            image_path = page_dir / f"{component_id}.png"
+            manifest_path = page_dir / f"{component_id}_manifest.json"
+
+            cv2.imwrite(str(image_path), image[y1:y2, x1:x2])
+            component["image_path"] = str(image_path)
+            component["manifest_path"] = str(manifest_path)
+            if parent_id:
+                component["parent_id"] = parent_id
+
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(component, f, indent=2, default=str)
 
 
     def __repr__(self) -> str:

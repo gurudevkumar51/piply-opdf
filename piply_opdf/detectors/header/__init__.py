@@ -25,27 +25,32 @@ class HeaderDetector:
         h_72 = page.rect.height
         header_y_limit = h_72 * self.top_margin_ratio
         
-        headers = []
+        header_blocks = []
         blocks = page.get_text("blocks")
-        
-        header_idx = 1
         for b in blocks:
-            x0, y0, x1, y1, text, block_type, block_no = b
-            if block_type == 0: # text block
-                if y1 <= header_y_limit:
-                    # Valid header
-                    tx0 = int(x0 * self.scale)
-                    ty0 = int(y0 * self.scale)
-                    tx1 = int(x1 * self.scale)
-                    ty1 = int(y1 * self.scale)
-                    
-                    headers.append({
-                        "id": f"header_{header_idx:03d}",
-                        "type": "header",
-                        "page": page_num,
-                        "bbox": [tx0, ty0, tx1 - tx0, ty1 - ty0],
-                        "confidence": 0.95
-                    })
-                    header_idx += 1
+            if b[6] == 0 and b[3] <= header_y_limit:
+                header_blocks.append(b)
+                
+        headers = []
+        if header_blocks:
+            x0 = min(b[0] for b in header_blocks)
+            y0 = min(b[1] for b in header_blocks)
+            x1 = max(b[2] for b in header_blocks)
+            y1 = max(b[3] for b in header_blocks)
+            text = "\n".join(b[4].strip() for b in header_blocks)
+            
+            tx0 = int(x0 * self.scale)
+            ty0 = int(y0 * self.scale)
+            tx1 = int(x1 * self.scale)
+            ty1 = int(y1 * self.scale)
+            
+            headers.append({
+                "id": "header_001",
+                "type": "header",
+                "page": page_num,
+                "bbox": [tx0, ty0, tx1 - tx0, ty1 - ty0],
+                "text": text,
+                "confidence": 0.95
+            })
                     
         return headers
