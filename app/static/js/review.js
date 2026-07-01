@@ -343,7 +343,9 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
             const fb = (pred.feedback && pred.feedback.length > 0) ? pred.feedback[0] : null;
             const isAccepted = fb && fb.is_accepted && fb.source !== 'hash_match';
             if (isAccepted) {
-                if (fb.user_value !== pred.predicted_text) {
+                if (fb.source === 'knowledge_base') {
+                    // Keep the original pred.source (exact_match or near_match)
+                } else if (fb.user_value !== pred.predicted_text) {
                     source = 'human';
                 } else {
                     source = 'human_verified';
@@ -352,6 +354,9 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
             
             if (sourceVal === 'ocr') {
                 return ['ocr', 'paddle', 'tesseract', 'paddleocr'].includes(source);
+            }
+            if (sourceVal === 'knowledge_base') {
+                return ['exact_match', 'near_match'].includes(source);
             }
             if (sourceVal === 'ml') {
                 return source.startsWith('ml_');
@@ -491,10 +496,17 @@ function getCardInnerHtml(c) {
             borderColor = 'border-green-300 shadow-green-100 shadow-sm';
             sourceBadge = `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: Human</span>`;
         } else if (isAccepted) {
-            confText = '100% (Verified)';
-            confColor = 'text-blue-600';
-            borderColor = 'border-blue-300 shadow-blue-100 shadow-sm';
-            sourceBadge = `<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: VERIFIED OCR</span>`;
+            if (fb.source === 'knowledge_base') {
+                confText = '100% (KB Match)';
+                confColor = 'text-purple-600';
+                borderColor = 'border-purple-300 shadow-purple-100 shadow-sm';
+                sourceBadge = `<span class="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: KNOWLEDGE BASE</span>`;
+            } else {
+                confText = '100% (Verified)';
+                confColor = 'text-blue-600';
+                borderColor = 'border-blue-300 shadow-blue-100 shadow-sm';
+                sourceBadge = `<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: VERIFIED OCR</span>`;
+            }
         } else {
             confText = `${confPct}%`;
             let badgeClass = "bg-gray-100 text-gray-600";
