@@ -330,6 +330,17 @@ def run_ocr_on_cells(document_id: int):
                     )
                     db.add(db_pred)
                     db.commit()
+                    db.refresh(db_pred)
+                    
+                    if ocr_res.source in ["exact_match", "human"]:
+                        db_fb = models.OCRFeedback(
+                            prediction_id=db_pred.id,
+                            user_value=ocr_res.text,
+                            is_accepted=True,
+                            source="knowledge_base"
+                        )
+                        db.add(db_fb)
+                        db.commit()
             except Exception as e:
                 print(f"OCR failed for cell {cell.id}: {e}")
                 db.rollback()
