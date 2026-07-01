@@ -332,7 +332,7 @@ def run_ocr_on_cells(document_id: int):
                     db.commit()
                     db.refresh(db_pred)
                     
-                    if ocr_res.source in ["exact_match", "human"]:
+                    if ocr_res.source in ["exact_match", "near_match", "human"]:
                         db_fb = models.OCRFeedback(
                             prediction_id=db_pred.id,
                             user_value=ocr_res.text,
