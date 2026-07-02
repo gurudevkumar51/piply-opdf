@@ -19,7 +19,18 @@ def get_registry() -> KnowledgeRegistry:
         _registry.load_all()
     return _registry
 
-def register_correction(image_path: str, correct_text: str, source: str = "human", component_type: str = "CELL") -> bool:
+def register_correction(
+    image_path: str, 
+    correct_text: str, 
+    source: str = "human", 
+    component_type: str = "CELL",
+    cluster_id: int = None,
+    quality_score: float = None,
+    rotation_angle: float = None,
+    foreground_ratio: float = None,
+    entropy: float = None,
+    skeleton_length: int = None
+) -> bool:
     """
     Registers a human correction directly into the Knowledge Base.
     Generates hashes and image features automatically.
@@ -34,6 +45,20 @@ def register_correction(image_path: str, correct_text: str, source: str = "human
     if not features or "phash" not in features:
         logger.error(f"Failed to extract features for: {image_path}")
         return False
+        
+    # Inject application-level features if provided
+    if cluster_id is not None:
+        features["cluster_id"] = cluster_id
+    if quality_score is not None:
+        features["quality_score"] = quality_score
+    if rotation_angle is not None:
+        features["rotation_angle"] = rotation_angle
+    if foreground_ratio is not None:
+        features["foreground_ratio"] = foreground_ratio
+    if entropy is not None:
+        features["entropy"] = entropy
+    if skeleton_length is not None:
+        features["skeleton_length"] = skeleton_length
         
     registry = get_registry()
     session = registry.get_default_session()

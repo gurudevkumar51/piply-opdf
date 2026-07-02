@@ -153,7 +153,19 @@ async def submit_feedback(prediction_id: int, feedback: schemas.FeedbackUpdate, 
 
     if feedback.is_accepted and prediction.component.manifest_path:
         from piply_opdf.feedback import register_correction
-        background_tasks.add_task(register_correction, prediction.component.manifest_path, final_val, final_source, prediction.component.component_type)
+        background_tasks.add_task(
+            register_correction, 
+            prediction.component.manifest_path, 
+            final_val, 
+            final_source, 
+            prediction.component.component_type,
+            prediction.component.cluster_id,
+            prediction.component.quality_score,
+            prediction.component.rotation_angle,
+            prediction.component.foreground_ratio,
+            prediction.component.entropy,
+            prediction.component.skeleton_length
+        )
             
     db.commit()
     return {"status": "success"}
@@ -186,7 +198,19 @@ async def bulk_accept(bulk_update: schemas.BulkFeedbackUpdate, background_tasks:
             
         if prediction.component.manifest_path:
             from piply_opdf.feedback import register_correction
-            background_tasks.add_task(register_correction, prediction.component.manifest_path, fb.user_value, fb.source, prediction.component.component_type)
+            background_tasks.add_task(
+                register_correction, 
+                prediction.component.manifest_path, 
+                fb.user_value, 
+                fb.source, 
+                prediction.component.component_type,
+                prediction.component.cluster_id,
+                prediction.component.quality_score,
+                prediction.component.rotation_angle,
+                prediction.component.foreground_ratio,
+                prediction.component.entropy,
+                prediction.component.skeleton_length
+            )
                 
     db.commit()
     return {"status": "success", "count": len(bulk_update.prediction_ids)}
