@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Dict, Any
 
+from sqlalchemy import func
+
 from piply_opdf.knowledge.registry import KnowledgeRegistry
 from piply_opdf.database.knowledge_models import OCRKnowledgeEntry
 from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
@@ -18,6 +20,26 @@ def get_registry() -> KnowledgeRegistry:
         _registry = KnowledgeRegistry()
         _registry.load_all()
     return _registry
+
+def _assign_cluster_id(session, text_value: str) -> int:
+    """Assigns a cluster ID based on exact case-insensitive match of text."""
+    if not text_value:
+        return None
+        
+    normalized = text_value.lower().strip()
+    
+    # Find existing cluster for this text
+    existing = session.query(OCRKnowledgeEntry).filter(
+        func.lower(OCRKnowledgeEntry.text_value) == normalized,
+        OCRKnowledgeEntry.cluster_id.isnot(None)
+    ).first()
+    
+    if existing:
+        return existing.cluster_id
+        
+    # Generate a new cluster ID
+    max_id = session.query(func.max(OCRKnowledgeEntry.cluster_id)).scalar()
+    return (max_id or 0) + 1
 
 def register_correction(
     image_path: str, 
@@ -64,6 +86,11 @@ def register_correction(
     session = registry.get_default_session()
     
     try:
+        # If no cluster_id provided from app, automatically assign one!
+        if cluster_id is None:
+            cluster_id = _assign_cluster_id(session, correct_text)
+            features["cluster_id"] = cluster_id
+            
         phash = features["phash"]
         
         # Check if it already exists
