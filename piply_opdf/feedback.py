@@ -19,7 +19,7 @@ def get_registry() -> KnowledgeRegistry:
         _registry.load_all()
     return _registry
 
-def register_correction(image_path: str, correct_text: str, source: str = "human") -> bool:
+def register_correction(image_path: str, correct_text: str, source: str = "human", component_type: str = "CELL") -> bool:
     """
     Registers a human correction directly into the Knowledge Base.
     Generates hashes and image features automatically.
@@ -47,6 +47,7 @@ def register_correction(image_path: str, correct_text: str, source: str = "human
             existing.text_value = correct_text
             existing.source = source
             existing.confidence = 1.0
+            existing.component_type = component_type
             existing.cluster_id = features.get("cluster_id")
             existing.quality_score = features.get("quality_score", 1.0)
             existing.rotation_angle = features.get("rotation_angle", 0.0)
@@ -59,6 +60,7 @@ def register_correction(image_path: str, correct_text: str, source: str = "human
                 text_value=correct_text,
                 source=source,
                 confidence=1.0,
+                component_type=component_type,
                 cluster_id=features.get("cluster_id"),
                 quality_score=features.get("quality_score", 1.0),
                 rotation_angle=features.get("rotation_angle", 0.0),

@@ -153,7 +153,7 @@ async def submit_feedback(prediction_id: int, feedback: schemas.FeedbackUpdate, 
 
     if feedback.is_accepted and prediction.component.manifest_path:
         from piply_opdf.feedback import register_correction
-        background_tasks.add_task(register_correction, prediction.component.manifest_path, final_val, final_source)
+        background_tasks.add_task(register_correction, prediction.component.manifest_path, final_val, final_source, prediction.component.component_type)
             
     db.commit()
     return {"status": "success"}
@@ -186,7 +186,7 @@ async def bulk_accept(bulk_update: schemas.BulkFeedbackUpdate, background_tasks:
             
         if prediction.component.manifest_path:
             from piply_opdf.feedback import register_correction
-            background_tasks.add_task(register_correction, prediction.component.manifest_path, fb.user_value, fb.source)
+            background_tasks.add_task(register_correction, prediction.component.manifest_path, fb.user_value, fb.source, prediction.component.component_type)
                 
     db.commit()
     return {"status": "success", "count": len(bulk_update.prediction_ids)}
@@ -426,6 +426,8 @@ async def get_knowledge(skip: int = 0, limit: int = 50, search: str = "", sort: 
                 "phash": kb.phash,
                 "text_value": kb.text_value,
                 "source": kb.source,
+                "entropy": kb.entropy,
+                "component_type": kb.component_type,
                 "confidence": kb.confidence,
                 "sample_component_id": None
             }

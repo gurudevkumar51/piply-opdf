@@ -50,13 +50,14 @@
                             <th scope="col" class="px-6 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider w-1/4">Visual Preview</th>
                             <th scope="col" class="px-6 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider w-1/4">Image Hash (pHash)</th>
                             <th scope="col" class="px-6 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider w-1/3">Validated Text</th>
+                            <th scope="col" class="px-6 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider">Type</th>
                             <th scope="col" class="px-6 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider">Source</th>
                             <th scope="col" class="px-6 py-3 text-right font-semibold text-gray-500 uppercase tracking-wider w-32">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="kb-tbody" class="bg-white divide-y divide-gray-200">
                         <tr>
-                            <td colspan="6" class="px-6 py-10 text-center text-gray-500">Loading...</td>
+                            <td colspan="7" class="px-6 py-10 text-center text-gray-500">Loading...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -85,7 +86,7 @@
 
         async function loadKnowledgeBase() {
             const tbody = document.getElementById('kb-tbody');
-            tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-10 text-center text-gray-500">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-10 text-center text-gray-500">Loading...</td></tr>';
             
             const searchInput = document.getElementById('search-knowledge');
             const searchVal = searchInput ? searchInput.value : '';
@@ -124,7 +125,7 @@
         function renderTable() {
             const tbody = document.getElementById('kb-tbody');
             if (kbData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-10 text-center text-gray-500 italic">No records found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-10 text-center text-gray-500 italic">No records found.</td></tr>';
                 const countEl = document.getElementById('kb-count');
                 if (countEl) countEl.textContent = `0 records`;
                 document.getElementById('pagination-controls').classList.add('hidden');
@@ -161,6 +162,7 @@
                         <div id="text-display-${item.id}" class="font-medium">${item.text_value}</div>
                         <input type="text" id="text-edit-${item.id}" value="${item.text_value}" class="hidden w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
                     </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.component_type || 'CELL'}</td>
                     <td class="px-6 py-4 whitespace-nowrap">${sourceBadge}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div id="actions-display-${item.id}">

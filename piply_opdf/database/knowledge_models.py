@@ -14,6 +14,7 @@ class OCRKnowledgeEntry(KnowledgeBase):
     id = Column(Integer, primary_key=True, index=True)
     phash = Column(String, unique=True, index=True)  # pHash
     cluster_id = Column(Integer, index=True)
+    component_type = Column(String, index=True)
     quality_score = Column(Float)
     rotation_angle = Column(Float)
     foreground_ratio = Column(Float)
