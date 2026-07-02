@@ -48,12 +48,21 @@ def register_correction(image_path: str, correct_text: str, source: str = "human
             existing.source = source
             existing.confidence = 1.0
             existing.component_type = component_type
-            existing.cluster_id = features.get("cluster_id")
-            existing.quality_score = features.get("quality_score", 1.0)
-            existing.rotation_angle = features.get("rotation_angle", 0.0)
-            existing.foreground_ratio = features.get("foreground_ratio", 0.0)
-            existing.entropy = features.get("entropy", 0.0)
-            existing.skeleton_length = features.get("skeleton_length", 0)
+            
+            # Preserve existing ML fields if not provided by the extractor
+            if features.get("cluster_id") is not None:
+                existing.cluster_id = features.get("cluster_id")
+                
+            if features.get("quality_score") is not None:
+                existing.quality_score = features.get("quality_score")
+            if features.get("rotation_angle") is not None:
+                existing.rotation_angle = features.get("rotation_angle")
+            if features.get("foreground_ratio") is not None:
+                existing.foreground_ratio = features.get("foreground_ratio")
+            if features.get("entropy") is not None:
+                existing.entropy = features.get("entropy")
+            if features.get("skeleton_length") is not None:
+                existing.skeleton_length = features.get("skeleton_length")
         else:
             entry = OCRKnowledgeEntry(
                 phash=phash,
