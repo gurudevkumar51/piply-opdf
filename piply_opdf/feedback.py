@@ -42,17 +42,29 @@ def register_correction(image_path: str, correct_text: str, source: str = "human
         phash = features["phash"]
         
         # Check if it already exists
-        existing = session.query(OCRKnowledgeEntry).filter_by(image_hash=phash).first()
+        existing = session.query(OCRKnowledgeEntry).filter_by(phash=phash).first()
         if existing:
             existing.text_value = correct_text
             existing.source = source
             existing.confidence = 1.0
+            existing.cluster_id = features.get("cluster_id")
+            existing.quality_score = features.get("quality_score", 1.0)
+            existing.rotation_angle = features.get("rotation_angle", 0.0)
+            existing.foreground_ratio = features.get("foreground_ratio", 0.0)
+            existing.entropy = features.get("entropy", 0.0)
+            existing.skeleton_length = features.get("skeleton_length", 0)
         else:
             entry = OCRKnowledgeEntry(
-                image_hash=phash,
+                phash=phash,
                 text_value=correct_text,
                 source=source,
                 confidence=1.0,
+                cluster_id=features.get("cluster_id"),
+                quality_score=features.get("quality_score", 1.0),
+                rotation_angle=features.get("rotation_angle", 0.0),
+                foreground_ratio=features.get("foreground_ratio", 0.0),
+                entropy=features.get("entropy", 0.0),
+                skeleton_length=features.get("skeleton_length", 0),
                 dhash=features.get("dhash", ""),
                 ahash=features.get("ahash", ""),
                 width=features.get("width", 0),

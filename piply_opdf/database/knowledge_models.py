@@ -12,7 +12,14 @@ class OCRKnowledgeEntry(KnowledgeBase):
     __tablename__ = "ocr_knowledge_base"
 
     id = Column(Integer, primary_key=True, index=True)
-    image_hash = Column(String, unique=True, index=True)  # pHash
+    phash = Column(String, unique=True, index=True)  # pHash
+    cluster_id = Column(Integer, index=True)
+    quality_score = Column(Float)
+    rotation_angle = Column(Float)
+    foreground_ratio = Column(Float)
+    entropy = Column(Float)
+    skeleton_length = Column(Integer)
+    
     text_value = Column(Text)
     confidence = Column(Float, default=1.0)
     source = Column(String)  # 'human', 'manual_import', etc.

@@ -307,8 +307,15 @@ def run_ocr_on_cells(document_id: int):
             if not cell.phash:
                 try:
                     features = extractor.extract_features(cell.manifest_path)
-                    if features and "phash" in features:
-                        cell.phash = features["phash"]
+                    if features:
+                        cell.phash = features.get("phash")
+                        cell.cluster_id = features.get("cluster_id")
+                        cell.quality_score = features.get("quality_score")
+                        cell.rotation_angle = features.get("rotation_angle")
+                        cell.foreground_ratio = features.get("foreground_ratio")
+                        cell.entropy = features.get("entropy")
+                        cell.skeleton_length = features.get("skeleton_length")
+                        cell.features_json = json.dumps(features)
                 except Exception as e:
                     pass
             

@@ -92,10 +92,49 @@ class DefaultFeatureExtractor(IFeatureExtractor):
             hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
             hog_features = json.dumps(hog.compute(img_64).flatten().tolist())
             
+            # --- New ML Features ---
+            quality_score = 1.0 # Default since no enhancement pipeline
+            
+            rotation_angle = 0.0
+            if coords is not None and len(coords) > 0:
+                rect = cv2.minAreaRect(coords)
+                rotation_angle = rect[2]
+                # Normalize angle
+                if rotation_angle < -45:
+                    rotation_angle += 90
+            
+            foreground_ratio = stroke_density
+            
+            # Entropy
+            hist_probs = cv2.calcHist([cv_img], [0], None, [256], [0, 256]).flatten()
+            hist_probs /= (hist_probs.sum() + 1e-7)
+            entropy = float(-np.sum(hist_probs * np.log2(hist_probs + 1e-7)))
+            
+            # Skeleton Length (morphological thinning loop)
+            skeleton = np.zeros(thresh.shape, np.uint8)
+            eroded = np.zeros(thresh.shape, np.uint8)
+            temp = np.zeros(thresh.shape, np.uint8)
+            t_img = thresh.copy()
+            kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+            while True:
+                cv2.erode(t_img, kernel, eroded)
+                cv2.dilate(eroded, kernel, temp)
+                cv2.subtract(t_img, temp, temp)
+                cv2.bitwise_or(skeleton, temp, skeleton)
+                t_img, eroded = eroded, t_img
+                if cv2.countNonZero(t_img) == 0:
+                    break
+            skeleton_length = int(cv2.countNonZero(skeleton))
+            
             return {
                 "phash": phash,
                 "dhash": dhash,
                 "ahash": ahash,
+                "quality_score": quality_score,
+                "rotation_angle": rotation_angle,
+                "foreground_ratio": foreground_ratio,
+                "entropy": entropy,
+                "skeleton_length": skeleton_length,
                 "width": width,
                 "height": height,
                 "aspect_ratio": aspect_ratio,

@@ -151,12 +151,12 @@
                     ? '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 uppercase">Human</span>'
                     : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 uppercase">${item.source}</span>`;
 
-                const imgHtml = `<img src="/api/knowledge/image/${item.image_hash}" loading="lazy" onerror="this.outerHTML='<span class=\\'text-xs text-gray-400 italic\\'>No Image</span>'" class="h-10 object-contain rounded border border-gray-200" title="Hash: ${item.image_hash}">`;
+                const imgHtml = `<img src="/api/knowledge/image/${item.phash}" loading="lazy" onerror="this.outerHTML='<span class=\\'text-xs text-gray-400 italic\\'>No Image</span>'" class="h-10 object-contain rounded border border-gray-200" title="Hash: ${item.phash}">`;
 
                 tr.innerHTML = `
                     <td class="px-6 py-4 whitespace-nowrap text-gray-500 font-mono">${item.id}</td>
                     <td class="px-6 py-4 whitespace-nowrap bg-gray-50 flex items-center justify-center">${imgHtml}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-gray-900 font-mono text-xs truncate max-w-xs" title="${item.image_hash}">${item.image_hash}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-gray-900 font-mono text-xs truncate max-w-xs" title="${item.phash}">${item.phash}</td>
                     <td class="px-6 py-4 text-gray-900">
                         <div id="text-display-${item.id}" class="font-medium">${item.text_value}</div>
                         <input type="text" id="text-edit-${item.id}" value="${item.text_value}" class="hidden w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500">

@@ -376,11 +376,11 @@ async def reconstruct_page(request: Request):
 async def knowledge_page(request: Request):
     return templates.TemplateResponse(request=request, name="knowledge.html")
 
-@app.get("/api/knowledge/image/{image_hash}")
-async def get_knowledge_image(image_hash: str):
+@app.get("/api/knowledge/image/{phash}")
+async def get_knowledge_image(phash: str):
     from piply_opdf.feedback import get_registry
     registry = get_registry()
-    img_path = os.path.join(registry.knowledge_dir, "images", f"{image_hash}.png")
+    img_path = os.path.join(registry.knowledge_dir, "images", f"{phash}.png")
     if os.path.exists(img_path):
         return FileResponse(img_path, media_type="image/png")
     raise HTTPException(status_code=404, detail="Image not found")
@@ -401,7 +401,7 @@ async def get_knowledge(skip: int = 0, limit: int = 50, search: str = "", sort: 
             query = query.filter(
                 or_(
                     OCRKnowledgeEntry.text_value.ilike(search_pattern),
-                    OCRKnowledgeEntry.image_hash.ilike(search_pattern)
+                    OCRKnowledgeEntry.phash.ilike(search_pattern)
                 )
             )
             
@@ -423,7 +423,7 @@ async def get_knowledge(skip: int = 0, limit: int = 50, search: str = "", sort: 
         for kb in kb_entries:
             kb_dict = {
                 "id": kb.id,
-                "image_hash": kb.image_hash,
+                "phash": kb.phash,
                 "text_value": kb.text_value,
                 "source": kb.source,
                 "confidence": kb.confidence,
