@@ -29,7 +29,13 @@ from pathlib import Path
 from typing import Any
 
 from piply_opdf.config import Config, load_config
+from piply_opdf.core import BBox, ComponentType, PageContext
+from piply_opdf.quality.images import PageImages, build_page_images
+from piply_opdf.core.segmenter import segment_tree
+from piply_opdf.preprocessing import deskew
 from piply_opdf.models.assessment import AssessmentResult
+# Importing the package registers every segmenter in the registry.
+import piply_opdf.segmentation  # noqa: F401
 from piply_opdf.models.grid import TableModel
 from piply_opdf.phases.phase1_assess import DocumentAssessor
 from piply_opdf.phases.phase2_enhance import DocumentEnhancer
@@ -45,13 +51,24 @@ from piply_opdf.layout import (
     DebugVisualizer
 )
 from piply_opdf.detectors.table import TableDetector
+from piply_opdf.detectors.table.key_value_shape import looks_like_key_value_grid
 from piply_opdf.detectors.borderless_table import BorderlessTableDetector
 from piply_opdf.detectors.header import HeaderDetector
 from piply_opdf.detectors.footer import FooterDetector
 from piply_opdf.detectors.key_value import KeyValueDetector
 from piply_opdf.detectors.paragraph import ParagraphDetector
+from piply_opdf.detectors.list_item import ListItemDetector
+from piply_opdf.detectors.title import TitleDetector
+from piply_opdf.detectors.graphic import GraphicDetector
+from piply_opdf.detectors.panel import PanelDetector
 
 logger = logging.getLogger(__name__)
+
+#: A borderless table must have at least this many rows and columns. Below the
+#: column threshold a block of aligned text is a list of label/value pairs, not
+#: a table — see the note where these are applied.
+MIN_BORDERLESS_ROWS = 2
+MIN_BORDERLESS_COLUMNS = 3
 
 
 class Document:
@@ -96,6 +113,15 @@ class Document:
         self._assessment: AssessmentResult | None = None
         self._enhanced_path: Path | None = None
         self.tables: list[TableModel] = []
+        #: The three images each page was carried through, keyed by page
+        #: number. Detection reads ``structural``; OCR should read ``working``.
+        self.page_images: dict[int, PageImages] = {}
+        #: Regions the baseline model found that the rules did not. Kept apart
+        #: from the rule-based collections so which detector found what stays
+        #: answerable.
+        self.baseline_regions: list[dict] = []
+        #: One fusion summary per page, for diagnosis.
+        self.fusion_reports: dict[int, str] = {}
 
         logger.info(
             "Document initialised: %s | work_dir: %s",
@@ -175,16 +201,37 @@ class Document:
 
     # ── Phase 3: Grid Extraction Pipeline ─────────────────────────────────────
 
-    def process_layout(self, use_enhanced: bool = True) -> list[TableModel]:
+    def process_layout(
+        self,
+        use_enhanced: bool = True,
+        use_baseline: bool = False,
+    ) -> list[TableModel]:
         """
         Runs the new modular table and grid extraction engine.
         Follows Priority Order: P1 (Tables), P2 (Borderless), P3 (Headers), P4 (Footers).
+
+        Parameters
+        ----------
+        use_enhanced:
+            Kept for existing callers and ignored — layout always reads the
+            structural image. See :meth:`_resolve_source`.
+        use_baseline:
+            Run the trained layout model alongside the rules and fuse the two.
+            **Off by default**: it adds several seconds per page, and switching
+            it on changes what is detected, so it should be a deliberate choice
+            that can be measured before and after.
         """
         source = self._resolve_source(use_enhanced)
         self.tables = []
+        self.page_images = {}
+        self.baseline_regions = []
+        self.fusion_reports = {}
+        #: Boxed regions — closed frames with no internal division.
+        self.panels = []
         
         # P1
         table_detector = TableDetector()
+        panel_detector = PanelDetector()
         col_detector = ColumnDetector()
         row_detector = RowDetector()
         grid_builder = GridBuilder()
@@ -198,7 +245,10 @@ class Document:
         header_detector = HeaderDetector()
         footer_detector = FooterDetector()
         key_value_detector = KeyValueDetector()
+        list_item_detector = ListItemDetector()
         paragraph_detector = ParagraphDetector()
+        title_detector = TitleDetector()
+        graphic_detector = GraphicDetector()
         
         out_dir = self.work_dir / "layouts"
         debug_dir = self.work_dir / "debug"
@@ -214,11 +264,94 @@ class Document:
         self.key_values = []
         self.paragraphs = []
         self.sentences = []
+        self.list_items = []
+        self.titles = []
+        #: Regions no text detector claimed: signatures, handwriting, logos,
+        #: photographs, and anything the classifier could not type.
+        self.graphics = []
         
-        for page_idx, img in iter_pages(source, dpi=300):
+        for page_idx, original in iter_pages(source, dpi=300):
             page_num = page_idx + 1
-            
+
+            # A page is carried as three images. Detection reads the
+            # **structural** one — orientation and deskew only. The enhanced
+            # image exists for OCR and is deliberately not used here: measured
+            # on sample.pdf, enhancing cost a 171-cell table at 0.05 degrees of
+            # rotation, where the unenhanced page survived 2 degrees. Sharpening
+            # for legibility thins the hairline rules tables are found by.
+            #
+            # Pages with a text layer are not deskewed: PyMuPDF reports
+            # coordinates in the original page frame, so rotating the raster
+            # would put the image and the text layer in different coordinate
+            # systems. Such pages are digital and not skewed in the first place.
+            probe = PageContext(
+                page_number=page_num,
+                source_path=self.source_path,
+                image=original,
+                dpi=300,
+            )
+            images = build_page_images(
+                original,
+                enhance=self._page_enhancer(page_num),
+                has_text_layer=probe.has_text_layer,
+            )
+            self.page_images[page_num] = images
+
+            if images.skew_corrected:
+                logger.info(
+                    "Page %d: corrected skew by %.2f degrees",
+                    page_num, images.skew_corrected,
+                )
+            if images.needs_orientation_review:
+                # Not turned: which quarter turn is needed cannot be decided
+                # from ink alone, so a person chooses. See quality/orientation.
+                logger.warning(
+                    "Page %d: orientation %s — needs review",
+                    page_num, images.orientation.verdict,
+                )
+
+            img = images.structural
+            page_ctx = PageContext(
+                page_number=page_num,
+                source_path=self.source_path,
+                image=img,
+                dpi=300,
+                skew_correction=images.skew_corrected,
+            )
+
+            # --- STAGE 0.5: Panel Detection ---
+            # Before tables: a frame must be checked for internal division
+            # before anything claims it as a table. One cell is a panel; two or
+            # more is left for the table detector. See docs/components.md Rule 1.
+            # Segmented immediately: a container's children come from running
+            # the ordinary detectors inside it, so the box is opened up here
+            # rather than left as an empty region.
+            panel_comps = [
+                segment_tree(c, page_ctx) for c in panel_detector.detect(page_ctx)
+            ]
+            panels = [c.to_dict() for c in panel_comps]
+            self._save_component_crops(img, panels, out_dir, page_num, "panels")
+            for panel in panels:
+                self._save_component_crops(
+                    img, panel.get("children", []), out_dir, page_num, "panel_contents",
+                    parent_id=panel.get("id"),
+                )
+            self.panels.extend(panels)
+
+            # Not passed to the text detectors yet: until containers are
+            # decomposed (backlog F2) their contents must still be found at
+            # page level, otherwise everything inside a box is lost. Only the
+            # residual sweep excludes them, so frame lines are not reported as
+            # unknown regions.
+            panel_exclusions = [
+                b for b in (BBox.from_any(p["bbox"]) for p in panels) if b
+            ]
+
             # --- STAGE 1: Structured Table Detection (P1) ---
+            #: Grids that turned out to be key-value lists. Held separately so
+            #: the later detectors treat them as claimed, exactly as a table
+            #: would be.
+            kv_claimed: list[BBox] = []
             table_boxes = table_detector.detect_tables(img)
             
             for i, t_box in enumerate(table_boxes):
@@ -262,6 +395,22 @@ class Document:
                 page_debug_dir = debug_dir / f"page_{page_num}"
                 visualizer.visualize(img, table_model, page_debug_dir)
                 
+                # A form often rules a box around what is really a list of
+                # labelled fields. The grid detector sees the rules and calls
+                # it a table, but its columns are not carrying different kinds
+                # of data — they are label, separator and value, with empty
+                # spacers between. Reported as a table, the value of `PAN` ends
+                # up in "row 3, column 4" instead of under its own name.
+                if looks_like_key_value_grid(img, table_model):
+                    rows_as_pairs = self._grid_rows_as_key_values(
+                        img, table_model, page_num, out_dir
+                    )
+                    self.key_values.extend(rows_as_pairs)
+                    kv_claimed.extend(
+                        b for b in (BBox.from_any(kv["bbox"]) for kv in rows_as_pairs) if b
+                    )
+                    continue
+
                 self.tables.append(table_model)
                 
                 # Store the last table's columns and ID for the next page's continuation check
@@ -273,18 +422,11 @@ class Document:
             if not table_boxes:
                 previous_table_cols = None
                 previous_table_id = None
-                
-            # --- STAGE 3: Header Detection (P3) ---
-            headers = header_detector.detect_headers(str(self.source_path), page_num)
-            self._save_component_crops(img, headers, out_dir, page_num, "headers")
-            self.headers.extend(headers)
-            
-            # --- STAGE 4: Footer Detection (P4) ---
-            footers = footer_detector.detect_footers(str(self.source_path), page_num)
-            self._save_component_crops(img, footers, out_dir, page_num, "footers")
-            self.footers.extend(footers)
 
-            # Create tight bounding boxes from actual table cells to avoid excluding surrounding text
+            # Create tight bounding boxes from actual table cells to avoid excluding surrounding text.
+            # Computed before header/footer detection so those detectors can treat
+            # table area as claimed — without it, a header sitting directly above a
+            # table merges into one region with the table's first rows on scans.
             table_bboxes = []
             for t in self.tables:
                 if t.page == page_num:
@@ -303,36 +445,132 @@ class Document:
                     else:
                         table_bboxes.append(t.bbox.to_tuple())
 
-            # --- STAGE 5: Key-Value Detection (P5) ---
-            key_values = key_value_detector.detect_key_values(
-                str(self.source_path),
-                page_num,
-                table_bboxes,
+            table_exclusions = [BBox.from_any(b) for b in table_bboxes]
+            table_exclusions = [b for b in table_exclusions if b is not None]
+
+            # --- STAGE 1.5: Borderless Table Detection (P2) ---
+            # Runs immediately after bordered tables, and *before* the text
+            # detectors. A borderless table's rows look exactly like key-values
+            # or paragraphs, so whichever runs first claims them. Running this
+            # last — as it used to — meant a page that is entirely a borderless
+            # table produced key-values and no table at all.
+            from piply_opdf.models.grid import GridBoundingBox
+
+            borderless_input = list(table_boxes) + [
+                GridBoundingBox(x=p_.x, y=p_.y, width=p_.width, height=p_.height)
+                for p_ in panel_exclusions
+            ]
+            borderless = borderless_detector.detect_tables(
+                str(self.source_path), page_num, borderless_input
             )
+
+            # A borderless table needs at least two rows and three columns.
+            #
+            # Two columns of aligned text is not distinguishable from a list of
+            # label/value pairs, and the key-value detector reads those far
+            # better — it finds the separator and splits key from value. On real
+            # documents every two-column "table" was a form block, and claiming
+            # it here wiped out every key-value on the page.
+            #
+            # Three or more columns is unambiguously tabular.
+            borderless = [
+                bt for bt in borderless
+                if len(getattr(bt, "rows", [])) >= MIN_BORDERLESS_ROWS
+                and len(getattr(bt, "columns", [])) >= MIN_BORDERLESS_COLUMNS
+            ]
+            self.borderless_tables.extend(borderless)
+
+            borderless_exclusions = [
+                b for b in (BBox.from_any(tuple(bt.bbox)) for bt in borderless) if b
+            ]
+
+            # --- STAGE 2.5: Title Detection ---
+            # Ahead of the header: a prominent heading sits in the top band, so
+            # whichever runs first claims it. A large, short, typographically
+            # distinct line is a title; the running header is what remains.
+            title_comps = title_detector.detect(page_ctx, table_exclusions)
+            titles = [segment_tree(c, page_ctx).to_dict() for c in title_comps]
+            self._save_component_crops(img, titles, out_dir, page_num, "titles")
+            for t in titles:
+                self._save_component_crops(
+                    img, t.get("children", []), out_dir, page_num, "words",
+                    parent_id=t.get("id"),
+                )
+            self.titles.extend(titles)
+
+            title_exclusions = table_exclusions + borderless_exclusions + [
+                b for b in (BBox.from_any(t["bbox"]) for t in titles) if b
+            ]
+
+            # --- STAGE 3: Header Detection (P3) ---
+            # Text layer when present, CV fallback on scans — see detectors.header.
+            header_comps = header_detector.detect(page_ctx, title_exclusions)
+            headers = [segment_tree(c, page_ctx).to_dict() for c in header_comps]
+            self._save_component_crops(img, headers, out_dir, page_num, "headers")
+            for h in headers:
+                self._save_component_crops(
+                    img, h.get("children", []), out_dir, page_num, "words",
+                    parent_id=h.get("id"),
+                )
+            self.headers.extend(headers)
+
+            # --- STAGE 4: Footer Detection (P4) ---
+            footer_comps = footer_detector.detect(page_ctx, title_exclusions)
+            footers = [segment_tree(c, page_ctx).to_dict() for c in footer_comps]
+            self._save_component_crops(img, footers, out_dir, page_num, "footers")
+            for f in footers:
+                self._save_component_crops(
+                    img, f.get("children", []), out_dir, page_num, "words",
+                    parent_id=f.get("id"),
+                )
+            self.footers.extend(footers)
+
+            # Exclusions accumulate as each stage claims page area, so later
+            # detectors never re-report a region an earlier one already owns.
+            claimed = list(title_exclusions)
+            claimed += kv_claimed
+            claimed += [b for b in (BBox.from_any(h["bbox"]) for h in headers) if b]
+            claimed += [b for b in (BBox.from_any(f["bbox"]) for f in footers) if b]
+
+            # --- STAGE 5: Key-Value Detection (P5) ---
+            # Segmented into KEY / SEPARATOR / VALUE so a recurring key is
+            # verified once and reused, independently of its varying value.
+            kv_comps = key_value_detector.detect(page_ctx, claimed)
+            key_values = [segment_tree(c, page_ctx).to_dict() for c in kv_comps]
             self._save_component_crops(img, key_values, out_dir, page_num, "key_values")
+            for kv in key_values:
+                self._save_component_crops(
+                    img, kv.get("children", []), out_dir, page_num, "words",
+                    parent_id=kv.get("id"),
+                )
             self.key_values.extend(key_values)
+            claimed += [b for b in (BBox.from_any(kv["bbox"]) for kv in key_values) if b]
+
+            # --- STAGE 5.5: List Item Detection ---
+            list_items = [
+                c.to_dict() for c in list_item_detector.detect(page_ctx, claimed)
+            ]
+            self._save_component_crops(img, list_items, out_dir, page_num, "list_items")
+            for li in list_items:
+                self._save_component_crops(
+                    img, li.get("children", []), out_dir, page_num, "words",
+                    parent_id=li.get("id"),
+                )
+            self.list_items.extend(list_items)
+            claimed += [b for b in (BBox.from_any(li["bbox"]) for li in list_items) if b]
 
             # --- STAGE 6: Paragraph Detection (P6) ---
-            paragraph_exclusions = table_bboxes + [
-                tuple(kv["bbox"]) for kv in key_values if kv.get("bbox")
-            ] + [
-                tuple(h["bbox"]) for h in headers if h.get("bbox")
-            ] + [
-                tuple(f["bbox"]) for f in footers if f.get("bbox")
-            ]
-            p_results = paragraph_detector.detect_paragraphs(
-                str(self.source_path),
-                page_num,
-                paragraph_exclusions,
-            )
-            paragraphs = p_results["paragraphs"]
-            sentences = p_results["sentences"]
-            
+            # The detector emits SENTENCE for single-line runs and PARAGRAPH for
+            # multi-line runs in one list; split them for downstream consumers.
+            prose = [c.to_dict() for c in paragraph_detector.detect(page_ctx, claimed)]
+            paragraphs = [c for c in prose if c["type"] == "PARAGRAPH"]
+            sentences = [c for c in prose if c["type"] == "SENTENCE"]
+
             self._save_component_crops(img, paragraphs, out_dir, page_num, "paragraphs")
             for paragraph in paragraphs:
                 self._save_component_crops(
                     img,
-                    paragraph.get("words", []),
+                    paragraph.get("children", []),
                     out_dir,
                     page_num,
                     "words",
@@ -344,7 +582,7 @@ class Document:
             for sentence in sentences:
                 self._save_component_crops(
                     img,
-                    sentence.get("words", []),
+                    sentence.get("children", []),
                     out_dir,
                     page_num,
                     "words",
@@ -352,26 +590,39 @@ class Document:
                 )
             self.sentences.extend(sentences)
             
-            # Build all exclusions for Borderless Table
-            from piply_opdf.models.grid import GridBoundingBox
-            all_exclusions = list(table_boxes)
-            for kv in key_values:
-                if kv.get("bbox"):
-                    x, y, w, h = kv["bbox"]
-                    all_exclusions.append(GridBoundingBox(x=x, y=y, width=w, height=h))
-            for p in paragraphs:
-                if p.get("bbox"):
-                    x, y, w, h = p["bbox"]
-                    all_exclusions.append(GridBoundingBox(x=x, y=y, width=w, height=h))
-            for s in sentences:
-                if s.get("bbox"):
-                    x, y, w, h = s["bbox"]
-                    all_exclusions.append(GridBoundingBox(x=x, y=y, width=w, height=h))
 
-            # --- STAGE 2: Borderless Table Detection (P2) ---
-            borderless = borderless_detector.detect_tables(str(self.source_path), page_num, all_exclusions)
-            self.borderless_tables.extend(borderless)
-            
+
+            # --- STAGE 7: Residual / Graphic Sweep ---
+            # Runs last, with everything claimed so far as exclusions. Whatever
+            # ink is left is content no text detector recognised: logos,
+            # signatures, handwriting, photographs. Typed by the content
+            # classifier, or kept as UNKNOWN so a page never silently loses
+            # content and the decision can be deferred.
+            residual_claimed = list(claimed) + panel_exclusions
+            residual_claimed += [
+                b for b in (BBox.from_any(p["bbox"]) for p in paragraphs) if b
+            ]
+            residual_claimed += [
+                b for b in (BBox.from_any(s["bbox"]) for s in sentences) if b
+            ]
+            residual_claimed += borderless_exclusions
+
+            graphics = [
+                c.to_dict() for c in graphic_detector.detect(page_ctx, residual_claimed)
+            ]
+            self._save_component_crops(img, graphics, out_dir, page_num, "graphics")
+            self.graphics.extend(graphics)
+
+            # --- STAGE 8: Baseline layout model, fused with the rules ---
+            # Off unless asked for. The two are complementary rather than
+            # competing — measured on the corpus, the model finds headings and
+            # borderless tables the rules miss, while the rules find key-values,
+            # panels and marks the model has no concept of. Where both claim a
+            # region and name it differently, the component is flagged rather
+            # than resolved silently.
+            if use_baseline:
+                self._fuse_baseline(page_ctx, page_num)
+
             import cv2
             for b in borderless:
                 tx, ty, tw, th = b.bbox
@@ -559,10 +810,48 @@ class Document:
         }
 
     def _resolve_source(self, use_enhanced: bool) -> Path:
-        """Return the enhanced path if available and requested, else original."""
-        if use_enhanced and self._enhanced_path is not None and self._enhanced_path.exists():
-            return self._enhanced_path
+        """Where the page rasters are read from.
+
+        **Always the original.** Layout detection needs geometry, and the
+        enhanced PDF is built for legibility — measured on ``sample.pdf``, it
+        lost a 171-cell table at 0.05 degrees of rotation where the original
+        survived 2 degrees.
+
+        Enhancement has not gone away: it is applied per page, in memory, by
+        :func:`~piply_opdf.quality.images.build_page_images`, and kept on
+        ``PageImages.working`` for OCR to read. That is also where it is checked
+        for having destroyed structure.
+
+        *use_enhanced* is kept so existing callers do not break, and is ignored.
+        """
+        if use_enhanced and self._enhanced_path is not None:
+            logger.debug(
+                "Layout reads the original raster; the enhanced PDF is for OCR."
+            )
         return self.source_path
+
+    def _page_enhancer(self, page_num: int):
+        """An enhancement function for one page, or None to skip enhancement.
+
+        Returns None when the assessment says the page does not need cleaning,
+        which is what makes ``working is structural`` for a clean page — no
+        copy, no processing, no risk.
+        """
+        assessment = self._assessment
+        if assessment is None:
+            return None
+
+        page = None
+        for candidate in getattr(assessment, "pages", []) or []:
+            if getattr(candidate, "page_number", None) == page_num:
+                page = candidate
+                break
+
+        if page is not None and not getattr(page, "enhancement_needed", True):
+            return None
+
+        enhancer = DocumentEnhancer(config=self.config)
+        return lambda image: enhancer.enhance_image(image, page)
 
     # ── Properties ────────────────────────────────────────────────────────────
 
@@ -597,6 +886,133 @@ class Document:
                     bboxes.append(tuple(int(v) for v in bbox))
 
         return bboxes
+
+    def _fuse_baseline(self, page_ctx: PageContext, page_num: int) -> None:
+        """Run the baseline layout model and fuse it with what the rules found.
+
+        Regions only the model found are appended to :attr:`baseline_regions`
+        rather than merged into the rule-based collections. That keeps the two
+        distinguishable: an operator, and the evaluation harness, can both see
+        which detector is responsible for what.
+        """
+        from piply_opdf.baseline import baseline_detector, is_available
+        from piply_opdf.fusion import fuse
+
+        if not is_available():
+            logger.info("Baseline layout model unavailable; rules only")
+            return
+
+        regions = baseline_detector().detect(page_ctx)
+        if not regions:
+            return
+
+        existing = self._components_on_page(page_num)
+        outcome = fuse(existing, regions)
+
+        self.baseline_regions.extend(
+            component.to_dict() for component in outcome.components
+            if component.metadata.get("fusion") == "baseline only"
+        )
+        self.fusion_reports[page_num] = outcome.summary()
+
+        logger.info("Page %d fusion: %s", page_num, outcome.summary())
+
+    def _components_on_page(self, page_num: int) -> list:
+        """Every rule-detected component on a page, as DetectedComponent."""
+        from piply_opdf.core.types import DetectedComponent
+
+        found: list[DetectedComponent] = []
+        for name in ("panels", "headers", "footers", "titles", "key_values",
+                     "paragraphs", "sentences", "list_items", "graphics"):
+            for raw in getattr(self, name, []) or []:
+                if raw.get("page", 1) != page_num:
+                    continue
+                box = BBox.from_any(raw.get("bbox"))
+                if box is None:
+                    continue
+                found.append(
+                    DetectedComponent(
+                        id=raw.get("id", ""),
+                        type=raw.get("type", "UNKNOWN"),
+                        page=page_num,
+                        bbox=box,
+                        confidence=raw.get("confidence", 0.5),
+                        metadata=raw.get("metadata", {}) or {},
+                    )
+                )
+
+        for table in list(self.tables) + list(self.borderless_tables):
+            if getattr(table, "page", 1) != page_num:
+                continue
+            tb = getattr(table, "bbox", None)
+            if tb is None:
+                continue
+            found.append(
+                DetectedComponent(
+                    id=str(getattr(table, "table_id", "")),
+                    type=ComponentType.TABLE,
+                    page=page_num,
+                    bbox=BBox(int(tb.x), int(tb.y), int(tb.width), int(tb.height)),
+                    confidence=getattr(table, "confidence", 0.8),
+                )
+            )
+        return found
+
+    def _grid_rows_as_key_values(
+        self,
+        image,
+        table,
+        page_num: int,
+        out_dir,
+    ) -> list[dict]:
+        """Turn a grid that is really a labelled-field list into KEY_VALUE rows.
+
+        One pair per row: the leftmost column carrying writing is the label, the
+        rightmost is the value, and anything between them is the separator. The
+        row's own box is used for the pair, so an operator sees the whole line
+        as it appears on the page.
+        """
+        from piply_opdf.detectors.table.key_value_shape import column_glyph_counts
+
+        counts = column_glyph_counts(image, table)
+        floor = len(table.rows) * 0.5
+        carrying = [
+            col for col, n in zip(table.columns, counts) if n >= floor
+        ]
+        if len(carrying) < 2:
+            return []
+
+        key_col, value_col = carrying[0], carrying[-1]
+
+        pairs: list[dict] = []
+        for index, row in enumerate(sorted(table.rows, key=lambda r: r.bbox.y), start=1):
+            rb = row.bbox
+            pair = {
+                "id": f"{table.table_id}_kv_{index:03d}",
+                "type": ComponentType.KEY_VALUE,
+                "page": page_num,
+                "bbox": [rb.x, rb.y, rb.width, rb.height],
+                "text": "",
+                "confidence": 0.75,
+                "index": index,
+                "candidates": [],
+                "children": [],
+                "metadata": {
+                    "strategy": "grid-key-value",
+                    "needs_ocr": True,
+                    "key": "",
+                    "value": "",
+                    # Kept so the label and the value can be cropped and read
+                    # separately once OCR runs.
+                    "key_bbox": [key_col.bbox.x, rb.y, key_col.bbox.width, rb.height],
+                    "value_bbox": [value_col.bbox.x, rb.y, value_col.bbox.width, rb.height],
+                    "from_table": table.table_id,
+                },
+            }
+            pairs.append(pair)
+
+        self._save_component_crops(image, pairs, out_dir, page_num, "key_values")
+        return pairs
 
     def _save_component_crops(
         self,

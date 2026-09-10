@@ -8,3 +8,40 @@ sample*
 uploads/*
 scratch/*
 knowledge/images/*
+_corpus_out/*
+
+# Scratch output from the inspection tools (tools/draw_overlay.py,
+# check_coverage.py, _mark_sizes.py). Regenerated on demand, never reviewed.
+_overlay_out/
+_coverage_out/
+_marks_out/
+_diag_out/
+_*_log.txt
+_pipinstall.log
+
+# Every scratch directory the inspection and debug tools write into. These are
+# regenerated on demand and never reviewed, so one rule rather than a new line
+# each time a tool is run.
+_*/
+
+# Pipeline output. Regenerated from the source documents.
+outputs/
+uploads/
+*_piply/
+
+# Local databases. See docs/database.md — the knowledge base is the one file
+# that is not regenerable, so it is backed up rather than committed.
+*.db
+*.sqlite
+*.sqlite3
+
+# Editor / tooling
+.pytest_cache/
+.vscode/
+*.egg-info/
+
+# Local Claude Code settings; launch.json is shared, local overrides are not.
+.claude/settings.local.json
+
+# Corpus snapshots from tools/corpus_snapshot.py — regenerated on demand.
+_snapshot*.json

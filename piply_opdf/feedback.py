@@ -6,7 +6,7 @@ from typing import Dict, Any
 from sqlalchemy import func
 
 from piply_opdf.knowledge.registry import KnowledgeRegistry
-from piply_opdf.database.knowledge_models import OCRKnowledgeEntry
+from piply_opdf.database.knowledge_models import OCRKnowledgeEntry, OCRCluster
 from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
 
 logger = logging.getLogger(__name__)
@@ -21,23 +21,27 @@ def get_registry() -> KnowledgeRegistry:
         _registry.load_all()
     return _registry
 
-def _assign_cluster_id(session, text_value: str) -> int:
-    """Assigns a cluster ID based on exact case-insensitive match of text."""
-    if not text_value:
-        return None
+def _assign_cluster_id(session, text_value: str, phash: str) -> int:
+    """Assigns a cluster ID based on image similarity (pHash Hamming distance)."""
+    if not phash:
+        # Fallback if no phash
+        max_id = session.query(func.max(OCRKnowledgeEntry.cluster_id)).scalar()
+        return (max_id or 0) + 1
         
-    normalized = text_value.lower().strip()
+    registry = get_registry()
     
-    # Find existing cluster for this text
-    existing = session.query(OCRKnowledgeEntry).filter(
-        func.lower(OCRKnowledgeEntry.text_value) == normalized,
-        OCRKnowledgeEntry.cluster_id.isnot(None)
-    ).first()
-    
-    if existing:
-        return existing.cluster_id
+    # 1. Check if the exact hash exists and has a cluster_id
+    exact = registry.search_exact(phash)
+    if exact and exact.cluster_id:
+        return exact.cluster_id
         
-    # Generate a new cluster ID
+    # 2. Check mathematical similarity (Hamming distance)
+    # distance=8 is a reasonable threshold for slightly different scans/noise
+    near_match = registry.search_near_hash(phash, max_distance=8)
+    if near_match and near_match.cluster_id:
+        return near_match.cluster_id
+        
+    # 3. Generate a new cluster ID
     max_id = session.query(func.max(OCRKnowledgeEntry.cluster_id)).scalar()
     return (max_id or 0) + 1
 
@@ -86,12 +90,12 @@ def register_correction(
     session = registry.get_default_session()
     
     try:
+        phash = features["phash"]
+        
         # If no cluster_id provided from app, automatically assign one!
         if cluster_id is None:
-            cluster_id = _assign_cluster_id(session, correct_text)
+            cluster_id = _assign_cluster_id(session, correct_text, phash)
             features["cluster_id"] = cluster_id
-            
-        phash = features["phash"]
         
         # Check if it already exists
         existing = session.query(OCRKnowledgeEntry).filter_by(phash=phash).first()

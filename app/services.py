@@ -264,6 +264,35 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                         parent_id=sentence_id,
                     )
 
+        # 6.6 Parse list items
+        for li in getattr(piply_doc, "list_items", []):
+            if isinstance(li, dict):
+                page_num = li.get('page', li.get('page_number', 1))
+                li_id = insert_component(
+                    {
+                        "bbox": li.get('bbox', []),
+                        "text": li.get('text', ''),
+                        "confidence": li.get('confidence', 1.0),
+                        "image_path": li.get('image_path'),
+                        "manifest_path": li.get('manifest_path'),
+                    },
+                    "LIST_ITEM",
+                    page_num,
+                )
+                for word in li.get("words", []):
+                    insert_component(
+                        {
+                            "bbox": word.get("bbox", []),
+                            "text": word.get("text", ""),
+                            "confidence": word.get("confidence", 1.0),
+                            "image_path": word.get("image_path"),
+                            "manifest_path": word.get("manifest_path"),
+                        },
+                        "WORD",
+                        page_num,
+                        parent_id=li_id,
+                    )
+
         db.commit()
         
         # 7. Export OCR Manifest (Initial pass without OCR, later gets updated)
@@ -403,7 +432,8 @@ def export_ocr_manifest(document_id: int, db: Session):
         "footers": [],
         "key_values": [],
         "paragraphs": [],
-        "sentences": []
+        "sentences": [],
+        "list_items": []
     }
     
     comp_dict = {c.id: {
@@ -438,6 +468,8 @@ def export_ocr_manifest(document_id: int, db: Session):
                 manifest["paragraphs"].append(comp_dict[c.id])
             elif c.component_type == "SENTENCE":
                 manifest["sentences"].append(comp_dict[c.id])
+            elif c.component_type == "LIST_ITEM":
+                manifest["list_items"].append(comp_dict[c.id])
                 
     master_manifest_path = os.path.join(work_dir, "master_manifest.json")
     with open(master_manifest_path, 'w', encoding='utf-8') as f:

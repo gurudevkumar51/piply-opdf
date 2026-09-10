@@ -45,7 +45,10 @@ class TestDocumentAssessorInit:
         assert assessor.blur_threshold == 100.0
         assert assessor.noise_threshold == 0.02
         assert assessor.contrast_threshold == 50.0
-        assert assessor.skew_threshold == 2.0
+        # Tracks config/default.yaml. Flagging is deliberately sensitive; the
+        # decision to actually resample is gated separately by
+        # preprocessing.deskew.DEFAULT_MIN_CORRECTION.
+        assert assessor.skew_threshold == 0.1
 
     def test_custom_config(self) -> None:
         from piply_opdf.config import Config

@@ -39,12 +39,27 @@ dependencies = [
     "PyYAML>=6.0.1",
     "scipy>=1.13.0",
     "rich>=13.7.0",
+    # Primary OCR engine. Swappable via `ocr.engine` in configuration — see
+    # piply_opdf/ocr/ — but one engine has to be present for the pipeline to
+    # read anything at all.
+    "paddlepaddle>=2.6.0",
+    "paddleocr>=2.7.0",
 ]
 
 [project.optional-dependencies]
+# Kept for anyone pinning the OCR stack explicitly. PaddleOCR is the primary
+# engine and is a core dependency, so this extra is now a no-op alias.
 paddle = ["paddlepaddle>=2.6.0", "paddleocr>=2.7.0"]
 tesseract = ["pytesseract>=0.3.10"]
-api = ["fastapi>=0.111.0", "uvicorn[standard]>=0.29.0", "python-multipart>=0.0.9"]
+# sqlalchemy belongs here: app/database.py and app/models.py import it, and
+# without it `pip install .[api]` produces a web app that cannot start.
+api = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "python-multipart>=0.0.9",
+    "SQLAlchemy>=2.0.0",
+    "jinja2>=3.1.0",
+]
 excel = ["openpyxl>=3.1.2"]
 all = [
     "paddlepaddle>=2.6.0",
@@ -53,6 +68,8 @@ all = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.29.0",
     "python-multipart>=0.0.9",
+    "SQLAlchemy>=2.0.0",
+    "jinja2>=3.1.0",
     "openpyxl>=3.1.2",
 ]
 dev = [

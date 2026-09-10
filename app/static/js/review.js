@@ -2,7 +2,14 @@ let currentDocumentId = null;
 let cells = [];
 let currentPage = 1;
 const itemsPerPage = 60;
-const REVIEWABLE_TYPES = ['CELL', 'KEY_VALUE', 'WORD'];
+// Every type that carries text a person can read and correct. Mirrors
+// ComponentType.TEXTUAL in the library — the previous list here held only
+// CELL, KEY_VALUE and WORD, so a document without a table showed nothing at
+// all and headers and footers were never reviewable anywhere.
+const REVIEWABLE_TYPES = [
+    'CELL', 'KEY_VALUE', 'WORD', 'SENTENCE', 'PARAGRAPH',
+    'LIST_ITEM', 'HEADER', 'FOOTER', 'TITLE',
+];
 
 const docSelector = document.getElementById('doc-selector');
 const reviewList = document.getElementById('review-list');
@@ -10,6 +17,25 @@ const loading = document.getElementById('loading');
 
 function isReviewableComponent(component) {
     return component && REVIEWABLE_TYPES.includes(component.component_type);
+}
+
+// A person checks the smallest unit, not the container around it: if a header
+// was split into words, the words are what gets corrected and showing the
+// header as well would ask the same question twice.
+function isLeafForReview(component, byParent) {
+    if (!isReviewableComponent(component)) return false;
+    const children = byParent.get(component.id) || [];
+    return !children.some(isReviewableComponent);
+}
+
+function collectReviewUnits(allComps) {
+    const byParent = new Map();
+    allComps.forEach(c => {
+        if (c.parent_id == null) return;
+        if (!byParent.has(c.parent_id)) byParent.set(c.parent_id, []);
+        byParent.get(c.parent_id).push(c);
+    });
+    return allComps.filter(c => isLeafForReview(c, byParent));
 }
 
 function getDisplayTitle(component) {
@@ -87,7 +113,7 @@ window.reloadCell = async function (componentId) {
 
         const card = document.getElementById(`card-${componentId}`);
         if (card) {
-            card.innerHTML = getCardInnerHtml(cell);
+            renderCard(card, cell);
             // Update the button text inside the new HTML
             const btn = card.querySelector(`button[onclick="reloadCell(${componentId})"]`);
             if (btn) btn.textContent = nextBtnText;
@@ -115,11 +141,11 @@ window.reprocessDocument = async function() {
             // Re-select document to kick off polling and load empty state
             await window.selectDocument(currentDocumentId);
         } else {
-            alert("Failed to start processing.");
+            toast('Could not start processing.', 'bad');
         }
     } catch (e) {
         console.error(e);
-        alert("An error occurred.");
+        toast('Something went wrong.', 'bad');
     } finally {
         loading.classList.add('hidden');
     }
@@ -130,22 +156,22 @@ window.resumeOcr = async function() {
     const btnResume = document.getElementById('btn-resume-ocr');
     if (btnResume) {
         btnResume.disabled = true;
-        btnResume.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Resuming...`;
+        btnResume.innerHTML = `<span class="spinner spinner-sm spinner-on-ink"></span> Resuming…`;
     }
     try {
         const res = await fetch(`/resume-ocr/${currentDocumentId}`, { method: 'POST' });
         if (res.ok) {
             checkAndPollOcr();
         } else {
-            alert("Failed to resume OCR.");
+            toast('Could not resume OCR.', 'bad');
             if (btnResume) {
                 btnResume.disabled = false;
-                btnResume.innerHTML = '▶ Resume OCR';
+                btnResume.innerHTML = 'Resume OCR';
             }
         }
     } catch (e) {
         console.error(e);
-        alert("An error occurred.");
+        toast('Something went wrong.', 'bad');
         if (btnResume) {
             btnResume.disabled = false;
             btnResume.innerHTML = '▶ Resume OCR';
@@ -161,7 +187,7 @@ window.selectDocument = async function (docId) {
     try {
         const res = await fetch(`/components/${docId}?t=${new Date().getTime()}`);
         const allComps = await res.json();
-        cells = allComps.filter(isReviewableComponent);
+        cells = collectReviewUnits(allComps);
 
         allPages.clear();
         allTables.clear();
@@ -211,12 +237,12 @@ function renderAdvancedFilters() {
     pageFilters.innerHTML = '';
     Array.from(allPages).sort((a, b) => parseInt(a) - parseInt(b)).forEach(p => {
         const btn = document.createElement('button');
-        btn.className = `px-2 py-1 text-xs border rounded transition ${selectedPages.has(p) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`;
+        btn.className = `chip${selectedPages.has(p) ? ' is-active' : ''}`;
         btn.textContent = `Page ${p}`;
         btn.onclick = () => {
             if (selectedPages.has(p)) selectedPages.delete(p);
             else selectedPages.add(p);
-            btn.className = `px-2 py-1 text-xs border rounded transition ${selectedPages.has(p) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`;
+            btn.className = `chip${selectedPages.has(p) ? ' is-active' : ''}`;
             window.renderReviewList();
         };
         pageFilters.appendChild(btn);
@@ -226,12 +252,12 @@ function renderAdvancedFilters() {
     Array.from(allTables).sort().forEach(t => {
         const btn = document.createElement('button');
         const displayT = t.replace('borderless_', 'B-').replace('_', ' ');
-        btn.className = `px-2 py-1 text-xs border rounded transition ${selectedTables.has(t) ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`;
+        btn.className = `chip${selectedTables.has(t) ? ' is-active-accent' : ''}`;
         btn.textContent = displayT;
         btn.onclick = () => {
             if (selectedTables.has(t)) selectedTables.delete(t);
             else selectedTables.add(t);
-            btn.className = `px-2 py-1 text-xs border rounded transition ${selectedTables.has(t) ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`;
+            btn.className = `chip${selectedTables.has(t) ? ' is-active-accent' : ''}`;
             window.renderReviewList();
         };
         tableFilters.appendChild(btn);
@@ -250,7 +276,7 @@ function checkAndPollOcr() {
             try {
                 const res = await fetch(`/components/${currentDocumentId}?t=${new Date().getTime()}`);
                 const allComps = await res.json();
-                const newCells = allComps.filter(isReviewableComponent);
+                const newCells = collectReviewUnits(allComps);
                 const newMissingCount = newCells.filter(c => !c.predictions || c.predictions.length === 0).length;
 
                 if (newMissingCount < cells.filter(c => !c.predictions || c.predictions.length === 0).length) {
@@ -266,9 +292,7 @@ function checkAndPollOcr() {
                     
                     changedCells.forEach(newC => {
                         const cardEl = document.getElementById(`card-${newC.id}`);
-                        if (cardEl) {
-                            cardEl.innerHTML = getCardInnerHtml(newC);
-                        }
+                        if (cardEl) renderCard(cardEl, newC);
                     });
 
                     if (newMissingCount === 0) {
@@ -402,7 +426,7 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
     if (countEl) countEl.textContent = filtered.length;
 
     if (filtered.length === 0) {
-        reviewList.innerHTML = '<div class="col-span-full text-center text-gray-500 mt-10">No review units match your filters.</div>';
+        reviewList.innerHTML = '<div class="col-span-full empty-state">No review units match your filters.</div>';
         const pagControls = document.getElementById('pagination-controls');
         if (pagControls) pagControls.classList.add('hidden');
         return;
@@ -415,33 +439,7 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
     const startIdx = (currentPage - 1) * itemsPerPage;
     const paginated = filtered.slice(startIdx, startIdx + itemsPerPage);
 
-    paginated.forEach(c => {
-        let borderColor = 'border-gray-200';
-        const pred = (c.predictions && c.predictions.length > 0) ? c.predictions[0] : null;
-        if (pred) {
-            let normalizedConf = pred.confidence;
-            if (normalizedConf > 1.0) normalizedConf = normalizedConf / 100.0;
-            const confPct = Math.round(normalizedConf * 100);
-            const fb = (pred.feedback && pred.feedback.length > 0) ? pred.feedback[0] : null;
-            const isAccepted = fb && fb.is_accepted && fb.source !== 'hash_match';
-            const userValue = isAccepted ? fb.user_value : pred.predicted_text;
-            const isHuman = isAccepted && (userValue !== pred.predicted_text);
-            
-            if (isHuman) borderColor = 'border-green-300 shadow-green-100 shadow-sm';
-            else if (isAccepted) borderColor = 'border-blue-300 shadow-blue-100 shadow-sm';
-            else {
-                if (confPct >= 90) borderColor = 'border-green-200';
-                else if (confPct >= 80) borderColor = 'border-yellow-200';
-                else borderColor = 'border-red-300 bg-red-50';
-            }
-        }
-
-        const card = document.createElement('div');
-        card.id = `card-${c.id}`;
-        card.className = `relative flex flex-col bg-white border ${borderColor} rounded-lg overflow-hidden transition hover:shadow-md`;
-        card.innerHTML = getCardInnerHtml(c);
-        reviewList.appendChild(card);
-    });
+    renderGrouped(paginated);
 
     const pagControls = document.getElementById('pagination-controls');
     if (pagControls) {
@@ -458,174 +456,304 @@ window.renderReviewList = function (resetPage = true, targetPage = 1) {
     }
 }
 
-function getCardInnerHtml(c) {
-    let displayTitle = getDisplayTitle(c);
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
+/* Single source of truth for a review unit's display state, so the card
+   element's tone class and its inner markup can never drift apart. */
+function describeCard(c) {
     const pred = (c.predictions && c.predictions.length > 0) ? c.predictions[0] : null;
-    let isAccepted = false;
-    let userValue = '';
-    let originalOcr = '';
-    let confText = 'No OCR Data';
-    let confColor = 'text-gray-500';
-    let borderColor = 'border-gray-200';
-    let sourceBadge = '';
-    let isHuman = false;
 
-    if (pred) {
-        const fb = (pred.feedback && pred.feedback.length > 0) ? pred.feedback[0] : null;
-        isAccepted = fb && fb.is_accepted && fb.source !== 'hash_match';
-        originalOcr = pred.predicted_text;
-        userValue = isAccepted ? fb.user_value : originalOcr;
-        isHuman = isAccepted && (userValue !== originalOcr);
+    const state = {
+        pred,
+        isAccepted: false,
+        isHuman: false,
+        userValue: '',
+        originalOcr: '',
+        confText: 'No OCR data',
+        confClass: 'conf-muted',
+        tone: '',
+        valueClass: '',
+        sourceBadge: '',
+    };
 
-        let normalizedConf = pred.confidence;
-        if (normalizedConf > 1.0) normalizedConf = normalizedConf / 100.0;
-        const confPct = Math.round(normalizedConf * 100);
+    if (!pred) return state;
 
-        let source = pred.source || 'ocr';
-        let sourceDisplay = source.toUpperCase();
-        if (source === 'exact_match') sourceDisplay = 'EXACT HASH MATCH';
-        else if (source.startsWith('ml_')) sourceDisplay = `ML (${source.replace('ml_', '').toUpperCase()})`;
-        else if (source === 'paddle' || source === 'paddleocr') sourceDisplay = 'OCR (PADDLE)';
-        else if (source === 'tesseract') sourceDisplay = 'OCR (TESSERACT)';
-        else if (source === 'ocr') sourceDisplay = 'OCR';
+    const fb = (pred.feedback && pred.feedback.length > 0) ? pred.feedback[0] : null;
+    state.isAccepted = fb && fb.is_accepted && fb.source !== 'hash_match';
+    state.originalOcr = pred.predicted_text;
+    state.userValue = state.isAccepted ? fb.user_value : state.originalOcr;
+    state.isHuman = state.isAccepted && (state.userValue !== state.originalOcr);
 
-        if (isHuman) {
-            confText = '100% (Human)';
-            confColor = 'text-green-600';
-            borderColor = 'border-green-300 shadow-green-100 shadow-sm';
-            sourceBadge = `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: Human</span>`;
-        } else if (isAccepted) {
-            if (fb.source === 'knowledge_base') {
-                confText = '100% (KB Match)';
-                confColor = 'text-purple-600';
-                borderColor = 'border-purple-300 shadow-purple-100 shadow-sm';
-                sourceBadge = `<span class="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: KNOWLEDGE BASE</span>`;
-            } else {
-                confText = '100% (Verified)';
-                confColor = 'text-blue-600';
-                borderColor = 'border-blue-300 shadow-blue-100 shadow-sm';
-                sourceBadge = `<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: VERIFIED OCR</span>`;
-            }
+    let normalizedConf = pred.confidence;
+    if (normalizedConf > 1.0) normalizedConf = normalizedConf / 100.0;
+    const confPct = Math.round(normalizedConf * 100);
+
+    const source = pred.source || 'ocr';
+    let sourceDisplay = source.toUpperCase();
+    if (source === 'exact_match') sourceDisplay = 'Exact hash match';
+    else if (source.startsWith('ml_')) sourceDisplay = `ML · ${source.replace('ml_', '')}`;
+    else if (source === 'paddle' || source === 'paddleocr') sourceDisplay = 'OCR · Paddle';
+    else if (source === 'tesseract') sourceDisplay = 'OCR · Tesseract';
+    else if (source === 'ocr') sourceDisplay = 'OCR';
+
+    if (state.isHuman) {
+        state.confText = '100% · Human';
+        state.confClass = 'conf-ok';
+        state.tone = 'tone-ok';
+        state.valueClass = 'is-human';
+        state.sourceBadge = `<span class="badge badge-ok">Human</span>`;
+    } else if (state.isAccepted) {
+        if (fb.source === 'knowledge_base') {
+            state.confText = '100% · KB match';
+            state.confClass = 'conf-accent';
+            state.tone = 'tone-accent';
+            state.valueClass = 'is-kb';
+            state.sourceBadge = `<span class="badge badge-accent">Knowledge base</span>`;
         } else {
-            confText = `${confPct}%`;
-            let badgeClass = "bg-gray-100 text-gray-600";
-            if (source === 'exact_match') badgeClass = "bg-purple-100 text-purple-800";
-
-            sourceBadge = `<span class="${badgeClass} text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Source: ${sourceDisplay}</span>`;
-
-            if (confPct >= 90) { confColor = 'text-green-600'; borderColor = 'border-green-200'; }
-            else if (confPct >= 80) { confColor = 'text-yellow-600'; borderColor = 'border-yellow-200'; }
-            else { confColor = 'text-red-600'; borderColor = 'border-red-300 bg-red-50'; }
+            state.confText = '100% · Verified';
+            state.confClass = 'conf-info';
+            state.tone = 'tone-info';
+            state.valueClass = 'is-verified';
+            state.sourceBadge = `<span class="badge badge-info">Verified OCR</span>`;
         }
+    } else {
+        state.confText = `${confPct}%`;
+        const badgeTone = (source === 'exact_match') ? 'badge-accent' : '';
+        state.sourceBadge = `<span class="badge ${badgeTone}">${escapeHtml(sourceDisplay)}</span>`;
+
+        if (confPct >= 90) { state.confClass = 'conf-ok'; state.tone = 'tone-ok'; }
+        else if (confPct >= 80) { state.confClass = 'conf-warn'; state.tone = 'tone-warn'; }
+        else { state.confClass = 'conf-bad'; state.tone = 'tone-bad'; }
     }
+
+    return state;
+}
+
+/* Renders a review unit into an existing card element — sets both the tone
+   class and the inner markup. Use this everywhere instead of assigning
+   innerHTML directly, otherwise a re-rendered card keeps a stale tone. */
+// A table cell belongs to a row, and a person checks a row at a time — reading
+// across "Name | GAJENDRA NARAYAN" makes sense in a way that a wall of loose
+// cells does not. The database does not link a cell to its row (a cell's parent
+// is the TABLE), but the crop path records it: `table_001_r0_c3.png`.
+function cellRowKey(c) {
+    if (c.component_type !== 'CELL' || !c.manifest_path) return null;
+    const path = c.manifest_path.replace(/\\/g, '/');
+    const table = path.match(/(borderless_table_\d+|table_\d+)/i);
+    const row = path.match(/_r(\d+)_/);
+    if (!row) return null;
+    return {
+        key: `${table ? table[1].toLowerCase() : 'table'}|${row[1].padStart(4, '0')}`,
+        table: table ? table[1].toLowerCase() : 'table',
+        row: parseInt(row[1], 10),
+        col: (path.match(/_c(\d+)\./) || [null, '0'])[1],
+    };
+}
+
+function groupForReview(units) {
+    const groups = new Map();
+    const loose = [];
+
+    units.forEach(c => {
+        const info = cellRowKey(c);
+        if (!info) { loose.push(c); return; }
+        if (!groups.has(info.key)) {
+            groups.set(info.key, { table: info.table, row: info.row, cells: [] });
+        }
+        groups.get(info.key).cells.push({ unit: c, col: parseInt(info.col, 10) });
+    });
+
+    groups.forEach(g => g.cells.sort((a, b) => a.col - b.col));
+    return { groups: [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])), loose };
+}
+
+function worstConfidence(units) {
+    let worst = null;
+    units.forEach(c => {
+        const p = c.predictions && c.predictions.length ? c.predictions[0] : null;
+        if (!p) return;
+        if (worst === null || p.confidence < worst) worst = p.confidence;
+    });
+    return worst;
+}
+
+function renderGrouped(units) {
+    const { groups, loose } = groupForReview(units);
+
+    const cardGrid = () => {
+        const grid = document.createElement('div');
+        grid.className = 'review-card-grid';
+        return grid;
+    };
+
+    if (loose.length) {
+        const grid = cardGrid();
+        loose.forEach(c => {
+            const card = document.createElement('div');
+            card.id = `card-${c.id}`;
+            renderCard(card, c);
+            grid.appendChild(card);
+        });
+        reviewList.appendChild(grid);
+    }
+
+    groups.forEach(([, group]) => {
+        const block = document.createElement('section');
+        block.className = 'review-row-group';
+
+        const units = group.cells.map(c => c.unit);
+        const worst = worstConfidence(units);
+        const unread = units.filter(u => !u.predictions || !u.predictions.length).length;
+
+        const head = document.createElement('header');
+        head.className = 'review-row-head';
+        head.innerHTML = `
+            <span class="review-row-title">
+                Row ${group.row + 1}
+                <span class="review-row-table">${escapeHtmlSafe(group.table.replace(/_/g, ' '))}</span>
+            </span>
+            <span class="review-row-meta">
+                <span class="label-micro num">${units.length} cells</span>
+                ${unread ? `<span class="label-micro num">${unread} unread</span>` : ''}
+                ${worst !== null ? `<span class="badge ${worst < 0.8 ? 'badge-bad' : worst < 0.95 ? 'badge-warn' : ''} num">${Math.round(worst * 100)}%</span>` : ''}
+            </span>`;
+        block.appendChild(head);
+
+        const grid = cardGrid();
+        group.cells.forEach(({ unit }) => {
+            const card = document.createElement('div');
+            card.id = `card-${unit.id}`;
+            renderCard(card, unit);
+            grid.appendChild(card);
+        });
+        block.appendChild(grid);
+        reviewList.appendChild(block);
+    });
+}
+
+function escapeHtmlSafe(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderCard(cardEl, c) {
+    const state = describeCard(c);
+    cardEl.className = `rcard ${state.tone}`.trim();
+    cardEl.innerHTML = getCardInnerHtml(c, state);
+}
+
+function getCardInnerHtml(c, state) {
+    if (!state) state = describeCard(c);
+
+    const displayTitle = getDisplayTitle(c);
+    const { pred, isAccepted, isHuman, userValue, originalOcr, confText, confClass, valueClass, sourceBadge } = state;
+
+    const safeUser = escapeHtml(userValue);
+    const safeOcr = escapeHtml(originalOcr);
+
+    const editBox = (withSave) => `
+        <div id="edit-box-${c.id}" class="hidden">
+            <input type="text" id="input-${c.id}" value="${safeUser}" class="field field-sm">
+            ${withSave ? `
+            <button id="btn-${c.id}" onclick="submitFeedback(${pred.id}, ${c.id})" class="btn btn-primary btn-sm btn-block mt-2">
+                Save changes
+            </button>` : ''}
+        </div>`;
 
     let valueHtml = '';
     if (pred) {
         if (isHuman) {
             valueHtml = `
-                <div class="text-xs text-gray-500 mb-1">OCR Original: <span class="line-through">${originalOcr}</span></div>
-                <div class="text-sm font-semibold text-gray-900 mb-2 flex flex-row items-center flex-wrap gap-2">
-                    <span>Human Value:</span>
-                    <span class="text-green-700 font-bold whitespace-nowrap">${userValue} <button onclick="toggleEdit(${c.id})" class="text-xs text-blue-600 hover:text-blue-800" title="Edit text">✏️</button></span>
+                <div>
+                    <div class="label-micro mb-1">OCR original</div>
+                    <div class="text-xs rcard-strike mb-2">${safeOcr}</div>
+                    <div class="label-micro mb-1">Human value</div>
+                    <div id="display-val-${c.id}" class="rcard-value ${valueClass}">
+                        ${safeUser}
+                        <button onclick="toggleEdit(${c.id})" class="icon-btn" title="Edit text">✎</button>
+                    </div>
                 </div>
-                
-                <div id="edit-box-${c.id}" class="hidden mt-2">
-                    <input type="text" id="input-${c.id}" value="${userValue}" class="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:outline-none">
-                    <button id="btn-${c.id}" onclick="submitFeedback(${pred.id}, ${c.id})" class="w-full mt-2 py-1 rounded text-sm font-semibold transition bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
-                        Save Changes
-                    </button>
-                </div>
-            `;
+                ${editBox(true)}`;
         } else if (isAccepted) {
             valueHtml = `
-                <div class="text-xs text-gray-500 flex justify-between items-center mb-1">
-                    <span>Verified Value: </span>
-                    <div id="display-val-${c.id}" class="text-sm font-semibold text-blue-700 mb-2 mr-2">${originalOcr} <button onclick="toggleEdit(${c.id})" class="text-blue-600 hover:text-blue-800 ml-1">✏️</button></div>
+                <div>
+                    <div class="label-micro mb-1">Verified value</div>
+                    <div id="display-val-${c.id}" class="rcard-value ${valueClass}">
+                        ${safeOcr}
+                        <button onclick="toggleEdit(${c.id})" class="icon-btn" title="Edit text">✎</button>
+                    </div>
                 </div>
-                
-                <div id="edit-box-${c.id}" class="hidden mt-2">
-                    <input type="text" id="input-${c.id}" value="${userValue}" class="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:outline-none mb-2">
-                    <button id="btn-${c.id}" onclick="submitFeedback(${pred.id}, ${c.id})" class="w-full mt-2 py-1 rounded text-sm font-semibold transition bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
-                        Save Changes
-                    </button>
-                </div>
-            `;
+                ${editBox(true)}`;
         } else {
             valueHtml = `
-                <div class="text-xs text-gray-500 flex justify-between items-center mb-1">
-                    <span>OCR Value: </span>
-                    <div id="display-val-${c.id}" class="text-sm font-semibold text-gray-800 mb-2 mr-2">${originalOcr} <button onclick="toggleEdit(${c.id})" class="text-blue-600 hover:text-blue-800 ml-1">✏️</button></div>
+                <div>
+                    <div class="label-micro mb-1">OCR value</div>
+                    <div id="display-val-${c.id}" class="rcard-value">
+                        ${safeOcr}
+                        <button onclick="toggleEdit(${c.id})" class="icon-btn" title="Edit text">✎</button>
+                    </div>
                 </div>
-                
-                <div id="edit-box-${c.id}" class="hidden mt-2">
-                    <input type="text" id="input-${c.id}" value="${userValue}" class="w-full text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:outline-none mb-2">
-                </div>
-            `;
+                ${editBox(false)}`;
         }
     } else {
         valueHtml = `
-            <div class="flex-1 flex flex-col items-center justify-center py-4 bg-gray-50 rounded animate-pulse border border-gray-100">
-                <svg class="animate-spin h-6 w-6 text-blue-500 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <div class="text-xs text-gray-500 font-medium">Processing OCR...</div>
+            <div class="flex-1 flex flex-col items-center justify-center gap-2 py-5 surface-2" style="border-radius: var(--r-sm);">
+                <div class="spinner"></div>
+                <div class="label-micro">Processing OCR…</div>
             </div>`;
     }
 
     let actionButtonsHtml = '';
     if (pred) {
         const currentState = reloadStates[c.id] || 'default';
-        let reloadBtnText = '↻ Reload OCR';
-        if (currentState === 'salt') reloadBtnText = '↻ Reload (Tesseract)';
-        else if (currentState === 'tesseract') reloadBtnText = '↻ Reload (Paddle)';
-        else if (currentState === 'paddle') reloadBtnText = '↻ Reload (Salt)';
+        let reloadBtnText = 'Reload OCR';
+        if (currentState === 'salt') reloadBtnText = 'Reload · Tesseract';
+        else if (currentState === 'tesseract') reloadBtnText = 'Reload · Paddle';
+        else if (currentState === 'paddle') reloadBtnText = 'Reload · Salt';
 
         if (!(isHuman || isAccepted)) {
             actionButtonsHtml = `
-            <div class="flex space-x-2 mt-auto pt-2">
-                <button id="btn-${c.id}" onclick="submitFeedback(${pred.id}, ${c.id})" class="flex-1 py-1.5 rounded text-xs font-semibold transition bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
-                    Accept
-                </button>
-                <button onclick="reloadCell(${c.id})" class="flex-1 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded transition text-xs font-semibold shadow-sm">
-                    ${reloadBtnText}
-                </button>
+            <div class="flex gap-2 mt-2">
+                <button id="btn-${c.id}" onclick="submitFeedback(${pred.id}, ${c.id})" class="btn btn-primary btn-sm flex-1">Accept</button>
+                <button onclick="reloadCell(${c.id})" class="btn btn-sm flex-1">${reloadBtnText}</button>
             </div>`;
         } else {
             actionButtonsHtml = `
-            <button onclick="reloadCell(${c.id})" class="mt-2 w-full text-xs py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded transition font-semibold shadow-sm">
-                ${reloadBtnText}
-            </button>`;
+            <button onclick="reloadCell(${c.id})" class="btn btn-sm btn-block mt-2">${reloadBtnText}</button>`;
         }
     }
 
     return `
-        <div id="loader-${c.id}" class="hidden absolute inset-0 bg-white bg-opacity-80 flex flex-col justify-center items-center z-10 backdrop-blur-[1px]">
-            <svg class="animate-spin h-6 w-6 text-blue-600 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            <span class="text-xs font-semibold text-blue-700">Processing...</span>
+        <div id="loader-${c.id}" class="hidden overlay">
+            <div class="spinner"></div>
+            <span class="label-micro">Processing…</span>
         </div>
 
-        <div class="bg-gray-50 px-3 py-2 border-b ${borderColor} flex justify-between items-center">
-            <span class="text-xs font-bold text-gray-700 break-all" title="${c.component_type} ${c.id}">${displayTitle}</span>
+        <div class="rcard-head">
+            <span class="rcard-title" title="${escapeHtml(c.component_type)} ${c.id}">${escapeHtml(displayTitle)}</span>
             ${sourceBadge}
         </div>
-        
-        <div class="p-3 flex-1 flex flex-col">
-            <!-- Image -->
-            <div class="w-full h-24 bg-gray-100 rounded border border-gray-200 mb-3 flex items-center justify-center overflow-hidden">
-                <img src="/cell-image/${c.id}" alt="Component Image" class="max-w-full max-h-full object-contain cursor-pointer hover:scale-105 transition transform" onclick="window.open('/cell-image/${c.id}', '_blank')">
+
+        <div class="rcard-body">
+            <div class="rcard-thumb">
+                <img src="/cell-image/${c.id}" alt="Component crop"
+                     onclick="window.open('/cell-image/${c.id}', '_blank')">
             </div>
-            <!-- Details -->
-            <div class="flex-1 min-w-0 flex flex-col">
+
+            <div class="flex-1 min-w-0 flex flex-col gap-2">
                 ${valueHtml}
             </div>
-            
-            <div class="mt-auto pt-2 border-t ${borderColor} flex flex-col justify-between items-start">
-                <div class="flex justify-between items-center w-full">
-                    <span class="text-[10px] uppercase text-gray-500 font-semibold tracking-wider">Confidence</span>
-                    <span class="text-xs font-bold ${confColor}">${confText}</span>
-                </div>
+
+            <div class="rcard-foot">
+                <span class="label-micro">Confidence</span>
+                <span class="conf ${confClass}">${confText}</span>
             </div>
             ${actionButtonsHtml}
         </div>
@@ -677,7 +805,7 @@ window.submitFeedback = async function (predId, componentId) {
             const freshRes = await fetch(`/components/${currentDocumentId}?t=${new Date().getTime()}`);
             if (freshRes.ok) {
                 const allComps = await freshRes.json();
-                cells = allComps.filter(isReviewableComponent);
+                cells = collectReviewUnits(allComps);
                 
                 const sourceVal = document.getElementById('filter-source') ? document.getElementById('filter-source').value : 'all';
                 const filterVal = document.getElementById('filter-confidence') ? document.getElementById('filter-confidence').value : 'all';
@@ -686,8 +814,8 @@ window.submitFeedback = async function (predId, componentId) {
                 cells.forEach(c => {
                     const cardEl = document.getElementById(`card-${c.id}`);
                     if (cardEl) {
-                        cardEl.innerHTML = getCardInnerHtml(c);
-                        
+                        renderCard(cardEl, c);
+
                         // Check if it still matches the filter
                         let matches = true;
                         if (sourceVal !== 'all') {
@@ -762,18 +890,24 @@ window.acceptAllFiltered = async function () {
 
     // Only accept those that are NOT already accepted
     const predsToAccept = [];
+    const userValues = {};
     filtered.forEach(c => {
         if (c.predictions && c.predictions.length > 0) {
             const p = c.predictions[0];
             const isAcc = p.feedback && p.feedback.length > 0 && p.feedback[0].is_accepted;
             if (!isAcc) {
                 predsToAccept.push(p.id);
+                // Try to get the user-typed value if the input exists
+                const inputEl = document.getElementById(`input-${c.id}`);
+                if (inputEl) {
+                    userValues[p.id] = inputEl.value;
+                }
             }
         }
     });
 
     if (predsToAccept.length === 0) {
-        alert("All displayed predictions are already accepted or have no data.");
+        toast('Everything shown is already accepted or has no data.', 'info');
         return;
     }
 
@@ -782,14 +916,14 @@ window.acceptAllFiltered = async function () {
         await fetch('/feedback/bulk', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prediction_ids: predsToAccept, is_accepted: true })
+            body: JSON.stringify({ prediction_ids: predsToAccept, is_accepted: true, user_values: userValues })
         });
 
         // Reload all data
         await window.selectDocument(currentDocumentId);
     } catch (e) {
         console.error(e);
-        alert('Bulk accept failed');
+        toast('Bulk accept failed.', 'bad');
     } finally {
         loading.classList.add('hidden');
     }

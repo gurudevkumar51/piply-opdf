@@ -1,191 +1,181 @@
 # piply-opdf
 
-**OCR + PDF Document Understanding Framework**
+**Turn a bad or scanned PDF into a perfectly readable, parsable HTML page.**
 
-A production-grade, lightweight, self-learning platform for:
-- 📄 Document quality assessment
-- ✨ Selective image enhancement
-- 🔍 Layout detection (header, footer, table, paragraph, cell, image…)
-- ✂️ Region-level extraction & Content Classification
-- 🗂️ Similarity clustering & deduplication
-- 🤖 OCR with confidence analysis
-- 🧠 Human feedback learning *(Batch 2)*
-- 🔄 Document rebuilding *(Batch 3)*
-
-> **OCR is only one component.**
-> The primary value is: **Understand Layout → Learn → Correct → Rebuild**
-
----
-
-## Key Design Principles
-
-- ⚡ **Lightweight first** — OpenCV, NumPy, PyMuPDF, ImageHash, Scikit-Learn
-- 🔌 **Pluggable** — swap OCR engines, add phases, configure via YAML
-- 🧩 **Independent modules** — every phase has its own public API + CLI command
-- 📊 **No heavy transformers** — pure CV mathematics and analytics
-- 🔁 **Self-learning** — continuous improvement from human feedback *(Batch 2)*
-
----
-
-## Quick Start
+An offline, CPU-friendly document intelligence framework. It understands
+layout, learns from human corrections, and reconstructs documents — using OCR
+as a last resort rather than a first step.
 
 ```bash
-# Create & activate conda environment
 conda create -n py313_piply_opdf python=3.13 -y
 conda activate py313_piply_opdf
-
-# Install with PaddleOCR (primary engine)
 pip install -e ".[paddle,dev]"
 
-# Run full pipeline
 piply-opdf run invoice.pdf
 ```
 
----
-
-## Python API
-
-```python
-from piply_opdf import Document
-
-doc = Document("invoice.pdf")
-
-# Run individual phases
-assessment = doc.assess()
-enhanced_path = doc.enhance()
-layout = doc.detect_layout()
-manifest = doc.extract_layouts()
-ocr_result = doc.ocr()
-
-# Or full pipeline
-results = doc.run_all()
-
-print(f"Enhancement needed: {assessment.any_enhancement_needed}")
-print(f"Regions detected: {len(layout.regions)}")
-print(f"OCR confidence: {ocr_result.mean_confidence:.1%}")
-```
+![System flow](docs/images/system_flow.png)
 
 ---
 
-## Architecture Flow
+## Documentation
+
+Grouped by what you came to find out. Start with **capabilities.md** — it is the
+one that says plainly what does and does not work.
+
+### Understanding it
+
+| Document | Purpose |
+|----------|---------|
+| **[capabilities.md](docs/capabilities.md)** | **What it can and cannot do.** Start here |
+| [overview.md](docs/overview.md) | What it is, in one page |
+| [architecture.md](docs/architecture.md) | How it works — the pipeline and the contracts |
+| [components.md](docs/components.md) | The component vocabulary, and the rules that separate look-alike types |
+
+### Using it
+
+| Document | Purpose |
+|----------|---------|
+| [installation.md](docs/installation.md) | Setup and configuration |
+| [usage.md](docs/usage.md) | Python API, CLI, web app, REST, OCR engines |
+| [manifest.md](docs/manifest.md) | The manifest specification |
+| [database.md](docs/database.md) | Schemas |
+
+### How good is it, really
+
+| Document | Purpose |
+|----------|---------|
+| [quality.md](docs/quality.md) | Accuracy targets, what is measured, and what is not |
+| [audit.md](docs/audit.md) | Every sample page read against what the system produced — nine defects no metric caught |
+| [testing.md](docs/testing.md) | Test catalogue and the gaps that remain |
+
+### Where it is going
+
+| Document | Purpose |
+|----------|---------|
+| [scanned-documents.md](docs/scanned-documents.md) | The scanned-PDF goal, and the challenges ranked |
+| [accuracy.md](docs/accuracy.md) | How to reach maximum accuracy — and why not with a bigger model |
+| [plan-templates.md](docs/plan-templates.md) | The implementation plan: quality, baseline, knowledge, templates |
+| [backlog.md](docs/backlog.md) | Every tracked item, phase by phase |
+| [suggestions.md](docs/suggestions.md) | Ideas waiting for a decision |
+
+New here? Read **capabilities.md** first — it states plainly what works, what
+does not, and what is guaranteed.
+
+---
+
+## Two guarantees
+
+**Nothing is lost.** Every region of ink becomes a component. Content that
+cannot be classified is captured as `UNKNOWN` — cropped, indexed, reviewable —
+never discarded.
+
+**Nothing is fabricated.** Text comes only from the PDF text layer, OCR, the
+knowledge base, or a human. No code path synthesises or infers text. Unreadable
+content stays empty rather than guessed.
+
+---
+
+## How it works
 
 ```mermaid
 flowchart TD
-    A[Document PDF/Image] --> B[Phase 1: Assessment]
-    B --> C[Phase 2: Enhancement]
-    C --> D[Phase 3: Layout Detection]
-    
-    subgraph Detectors
-        D1[Table]
-        D2[Paragraph]
-        D3[Header/Footer]
-        D4[Key-Value]
-    end
-    D -.-> Detectors
-    
-    D --> E[Phase 4: Extraction & Segmentation]
-    E --> F[Phase 5: Extraction & Caching Pipeline]
-    
-    subgraph Pipeline
-        F1{Level 1: Exact Hash Match?}
-        F1 -- Yes --> F2[Return Verified Text]
-        F1 -- No --> F3[Level 2: PaddleOCR / Tesseract]
-        F3 --> F4[Store in SQLite DB]
-    end
-    F --> Pipeline
-    Pipeline --> G[Phase 6: Human Review UI]
-    G --> H[Phase 7: Document Reconstruction]
+    A[Page] --> B{Text layer?}
+    B -- yes --> C[Text strategy — exact text]
+    B -- no --> D[Deskew, then CV strategy — geometry]
+    D --> E[OCR fills the text]
+    C --> F[Segmentation into units]
+    E --> F
+    F --> G{Exact hash match?}
+    G -- yes --> H[Verified value, OCR skipped]
+    G -- no --> I[OCR → confidence routing → human review]
+    I --> J[Knowledge base]
+    J --> G
 ```
 
----
-
-## OCR Confidence Logic
-
-The system ranks text extraction with a confidence score from `0.0` to `1.0` (0% to 100%):
-
-- **HUMAN (100%)**: Manual user feedback guarantees absolute correctness.
-- **HASH MATCH (100%)**: Exact cryptographic `pHash` pixel matches to a human-verified image in the Knowledge Base automatically receive 100% confidence, bypassing the OCR engine entirely.
-- **NEAR HASH MATCH (95%)**: Hamming distance on pHash to find very similar images.
-- **ML PREDICTION (Variable)**: A predictive engine clusters similar image features (dHash, aHash, aspect ratio, edge density, Hu Moments, HOG features) to suggest likely corrections with an AI-calculated probability.
-- **OCR PADDLE (Variable)**: PaddleOCR's raw bounding box probability. *Note: If the detected text bounding box touches the extreme edge of the cell crop (indicating potential partial/cut-off characters), the confidence score is strictly halved (e.g. 98% -> 49%) to forcefully flag the cell for human review.*
-- **ML Cache vs Hash Match** (Explanation)
-**ML CACHE**: The system recognized the exact same image crop (pixel-for-pixel or through direct identical hash cache) from a previous extraction and just skipped the OCR engine completely, returning the cached text. We skip the OCR engine entirely because we have processed the exact identical pixel-crop before.
-**HASH MATCH**: The system processed the OCR, and then our new global background sync identified that the image's layout hash matches a cell a human explicitly verified in the past. It overrides the OCR with the human's verified value. Both use the image hash, but one is a speed-cache, and the other is a global human-override system. A human has verified the data of a structurally identical cell, so our background job safely overwrote the OCR output with the human's guaranteed correct value.
+**Detection** finds regions. **Segmentation** splits them into the smallest
+reviewable units. Every detector works on digital and scanned input alike,
+choosing a strategy per page — a document and its rasterised twin produce
+identical output.
 
 ---
 
-## CLI
+## Component types
 
-The Piply OPDF pipeline can be run from the command line either phase-by-phase or all at once.
+| Group | Types |
+|-------|-------|
+| Containers | `PANEL` · `TABLE` · `BORDERLESS_TABLE` |
+| Textual | `TITLE` · `HEADER` · `FOOTER` · `PARAGRAPH` · `SENTENCE` · `LIST_ITEM` · `KEY_VALUE` · `ROW` · `COLUMN` · `CELL` · `WORD` |
+| Graphic | `SIGNATURE` · `HANDWRITING` · `STAMP` · `LOGO` · `IMAGE` |
+| Residual | `UNKNOWN` |
 
-For full CLI documentation, including detailed command explanations and output structures, please see **[docs/cli.md](docs/cli.md)**.
+Look-alike types are separated by **definition, not inference**:
+
+| Pair | Rule |
+|------|------|
+| Table vs Panel | ≥2 cells → table; 1 cell → panel |
+| Stamp vs Logo | 1 colour → stamp; 2+ → logo |
+| Signature vs Handwriting | 1–2 word-groups → signature; 3+ → handwriting |
+
+---
+
+## Unit hierarchy
+
+| Layout | Units |
+|--------|-------|
+| Table | Row / Column → Cell |
+| Panel | *(any type — recursive detection)* |
+| Paragraph | Sentence → Word |
+| Header / Footer / Title / List item | Word |
+| Key-value | Key / Separator / Value |
+
+Splitting key-values three ways is deliberate: `Invoice Number` recurs across
+every document of a form type and is verified once; its value differs each time.
+
+---
+
+## Design principles
+
+- ⚡ **Mathematics over models** — OpenCV, NumPy, PyMuPDF; anything heavier must
+  justify itself against an analytic alternative
+- 📴 **Offline** — no network at inference time
+- 📏 **Scale-free** — thresholds are ratios or points-via-DPI, never fixed
+  pixels; verified A5→Legal and 150→600 DPI
+- 🔌 **Pluggable** — detectors and segmenters are strategies behind registries
+- ⚖️ **Under-claim** — a missed component becomes `UNKNOWN` and a human sees it;
+  a mistyped one propagates silently
+
+---
+
+## Status
+
+**Works:** scanned and digital input, automatic skew correction (0.00° error
+across ±8°), detection of tables, headers, footers, titles, key-values
+(including multi-column forms), paragraphs, lists and graphics, segmentation to
+word level, OCR with confidence routing, and a portable knowledge base.
+
+**Does not yet work:** boxed regions (`PANEL`), stamps, borderless tables on
+scans, page orientation, reading order, HTML output, ML prediction.
+
+**Not yet measured:** detection accuracy against ground truth. The suite proves
+consistency, not correctness on unseen documents.
+
+Full detail in [capabilities.md](docs/capabilities.md).
+
+---
+
+## Tests
 
 ```bash
-piply-opdf run invoice.pdf             # All phases in sequence
+pytest tests/unit -v
 ```
 
----
-
-## OCR Engines
-
-| Engine | Install | Notes |
-|--------|---------|-------|
-| **PaddleOCR** (primary) | `pip install piply-opdf[paddle]` | Better accuracy |
-| **Tesseract** (fallback) | `pip install piply-opdf[tesseract]` | Simpler install |
-
-Configure in `config/default.yaml`:
-```yaml
-ocr:
-  engine: paddleocr       # primary
-  fallback_engine: tesseract
-```
+438 tests. Corpora are generated in-process across page sizes and DPIs rather
+than committed as fixtures, so tests assert general behaviour rather than
+agreement with one document.
 
 ---
-
-## Output Files
-
-| Phase | Output |
-|-------|--------|
-| Assessment | `assessment.json` |
-| Enhancement | `<name>_enhanced.pdf` |
-| Layout Detection | `layout.json` |
-| Layout Extraction | `layouts/<type>/<class>/` + `layout_manifest.json` |
-| Similarity Clustering | `clusters/cluster_manifest.json` |
-| OCR | `ocr_result.json` |
-
----
-
-## Project Status
-
-See **[docs/status.md](docs/status.md)** for detailed feature status.
-
-| Batch | Phases | Status |
-|-------|--------|--------|
-| Batch 1 | 1–5 (Assessment → OCR) | ✅ Complete |
-| Batch 2 | 6–10 (Confidence → ML Engine, Human Review, DB) | ✅ Complete |
-| Batch 3 | 11–12 (Rebuilding + Web Application UI) | ✅ Complete |
-
----
-
-## Development Environment
-
-```bash
-conda activate py313_piply_opdf
-pip install -e ".[dev]"
-pytest tests/unit/ -v
-```
-
----
-
-## Validation run
-
-```bash
-piply-opdf run 134242485947340351.pdf
-piply-opdf run sample.pdf
-piply-opdf run 2000267806.pdf
-```
 
 ## License
 
 MIT
-

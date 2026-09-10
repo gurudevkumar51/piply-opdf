@@ -1,0 +1,16 @@
+piply_opdf.db
+*.db
+*.sqlite
+.pytest_cache/
+__pycache__/
+.git/
+node_modules/
+dist/
+build/
+# Block everything except your code scripts
+*.log
+*.json
+*.csv
+.vscode/
+.idea/
+__pycache__/

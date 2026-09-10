@@ -28,25 +28,25 @@ window.selectDocument = async function(docId) {
     if (!docId) return;
     currentDocumentId = docId;
     
-    contentArea.innerHTML = '<div class="text-center mt-20 text-gray-500">Loading manifest data...</div>';
-    
+    contentArea.innerHTML = '<div class="empty-state">Loading manifest data…</div>';
+
     try {
         const resDoc = await fetch(`/documents/${docId}`);
         currentDocument = await resDoc.json();
-        
+
         loadPageImage(currentPage);
-        
+
         const res = await fetch(`/download-manifest/${docId}`);
         if (!res.ok) {
-            contentArea.innerHTML = '<div class="text-center mt-20 text-red-500">Manifest not generated. Please process document.</div>';
+            contentArea.innerHTML = '<div class="empty-state" style="color: var(--bad);">Manifest not generated. Please process the document first.</div>';
             return;
         }
         manifestData = await res.json();
-        
+
         renderManifest();
     } catch (e) {
         console.error(e);
-        contentArea.innerHTML = '<div class="text-center mt-20 text-red-500">Error loading data.</div>';
+        contentArea.innerHTML = '<div class="empty-state" style="color: var(--bad);">Error loading data.</div>';
     }
 }
 
@@ -82,11 +82,12 @@ function renderManifest() {
     if (manifestData.key_values) manifestData.key_values.forEach(kv => allComponents.push({...kv, _category: 'Key-Value'}));
     if (manifestData.paragraphs) manifestData.paragraphs.forEach(p => allComponents.push({...p, _category: 'Paragraph'}));
     if (manifestData.sentences) manifestData.sentences.forEach(s => allComponents.push({...s, _category: 'Sentence'}));
+    if (manifestData.list_items) manifestData.list_items.forEach(li => allComponents.push({...li, _category: 'ListItem'}));
     if (manifestData.headers) manifestData.headers.forEach(h => allComponents.push({...h, _category: 'Header'}));
     if (manifestData.footers) manifestData.footers.forEach(f => allComponents.push({...f, _category: 'Footer'}));
     
     if (allComponents.length === 0) {
-        contentArea.innerHTML = '<div class="text-center mt-20 text-gray-500">No layout structures found.</div>';
+        contentArea.innerHTML = '<div class="empty-state">No layout structures found.</div>';
         return;
     }
     
@@ -98,8 +99,8 @@ function renderManifest() {
     };
 
     const renderTableGroup = (t, styleStr) => {
-        let out = `<div style="${styleStr}" class="overflow-hidden bg-white text-xs border border-gray-300">`;
-        out += `<table class="w-full border-collapse">`;
+        let out = `<div style="${styleStr}" class="overflow-hidden">`;
+        out += `<table class="reconstructed-table" style="margin-bottom: 0;">`;
         
         const allCells = t.children ? t.children.filter(c => c.type === 'CELL') : [];
         const rowMap = {};
@@ -117,7 +118,7 @@ function renderManifest() {
         const rowIndices = Object.keys(rowMap).map(Number).sort((a, b) => a - b);
         
         if (rowIndices.length === 0) {
-             out += `<tr><td class="text-gray-400 italic py-1 text-center border">No cells detected.</td></tr>`;
+             out += `<tr><td class="text-muted-2 italic text-center">No cells detected.</td></tr>`;
         } else {
              rowIndices.forEach((rIdx, i) => {
                  out += `<tr>`;
@@ -131,10 +132,10 @@ function renderManifest() {
                      let text = cell.ocr ? cell.ocr.text : '';
                      if (!text || text.trim() === '') text = '&nbsp;';
                      
-                     let confClass = 'border border-gray-300 p-1';
-                     if (cell.ocr && cell.ocr.confidence < 0.8 && !cell.ocr.is_human) confClass += ' bg-red-50';
-                     else if (cell.ocr && cell.ocr.confidence < 0.95 && !cell.ocr.is_human) confClass += ' bg-yellow-50';
-                     
+                     let confClass = '';
+                     if (cell.ocr && cell.ocr.confidence < 0.8 && !cell.ocr.is_human) confClass = 'cell-low-conf';
+                     else if (cell.ocr && cell.ocr.confidence < 0.95 && !cell.ocr.is_human) confClass = 'cell-med-conf';
+
                      out += `<td class="${confClass}">${text}</td>`;
                  });
                  out += `</tr>`;
@@ -152,72 +153,77 @@ function renderManifest() {
         pagesMap[c.page].push(c);
     });
     
-    const pageIndices = Object.keys(pagesMap).map(Number).sort((a,b)=>a-b);
-    
+    const pageIndices = Object.keys(pagesMap).map(Number).sort((a, b) => a - b);
+
+    // Reading order, laid out as a document rather than pinned to the original
+    // coordinates.
+    //
+    // Absolute positioning was setting left/top/width from the bbox but never a
+    // height, and rendering at a fixed font size regardless of how much the
+    // page had been scaled down. Text taller than its original region then ran
+    // straight over whatever sat below it, so every block collided. Flow makes
+    // that impossible, and matches the decision recorded for HTML output: a
+    // semantic, searchable document.
+    const readingOrder = (a, b) => {
+        const ba = parseBBox(a.bbox), bb = parseBBox(b.bbox);
+        if (!ba || !bb) return 0;
+        // Same visual line if their vertical spans overlap; then left to right.
+        const overlap = Math.min(ba[3], bb[3]) - Math.max(ba[1], bb[1]);
+        const shorter = Math.min(ba[3] - ba[1], bb[3] - bb[1]) || 1;
+        if (overlap > shorter * 0.5) return ba[0] - bb[0];
+        return ba[1] - bb[1];
+    };
+
+    const textOf = (comp) => {
+        if (comp.words && comp.words.length) {
+            const words = comp.words.map(w => (w.ocr ? w.ocr.text : w.text)).filter(Boolean);
+            if (words.length) return words.join(" ");
+        }
+        return comp.ocr ? comp.ocr.text : (comp.text || "");
+    };
+
+    const confidenceClass = (comp) => {
+        if (!comp.ocr || comp.ocr.is_human) return comp.ocr && comp.ocr.is_human ? "rc-human" : "";
+        if (comp.ocr.confidence < 0.8) return "rc-low";
+        if (comp.ocr.confidence < 0.95) return "rc-medium";
+        return "";
+    };
+
     pageIndices.forEach(p => {
-        const comps = pagesMap[p];
-        let maxX = 0;
-        let maxY = 0;
-        
-        comps.forEach(c => {
-            const b = parseBBox(c.bbox);
-            if (b) {
-                if (b[2] > maxX) maxX = b[2];
-                if (b[3] > maxY) maxY = b[3];
-            }
-        });
-        
-        maxX = Math.max(maxX * 1.05, 800);
-        maxY = Math.max(maxY * 1.05, 1000);
-        const aspectRatio = (maxX / maxY) || (1 / 1.414);
-        
-        html += `<div class="mb-10 mx-auto shadow-md bg-white relative border border-gray-200" style="width: 100%; aspect-ratio: ${aspectRatio};">`;
-        
+        const comps = [...pagesMap[p]].sort(readingOrder);
+
+        html += `<article class="rc-page paper">`;
+        html += `<div class="rc-page-label label-micro">Page ${p}</div>`;
+
         comps.forEach(comp => {
-            const b = parseBBox(comp.bbox);
-            let styleStr = '';
-            if (b) {
-                const leftPct = (b[0] / maxX) * 100;
-                const topPct = (b[1] / maxY) * 100;
-                const wPct = ((b[2] - b[0]) / maxX) * 100;
-                styleStr = `position: absolute; left: ${leftPct}%; top: ${topPct}%; width: ${wPct}%;`;
-            } else {
-                styleStr = `position: relative; margin-bottom: 1rem; width: 100%;`;
+            const cls = confidenceClass(comp);
+
+            if (comp._category === "Table" || comp._category === "Borderless Table") {
+                html += renderTableGroup(comp, "");
+                return;
             }
-            
-            if (comp._category === 'Table' || comp._category === 'Borderless Table') {
-                 html += renderTableGroup(comp, styleStr);
-            } else if (comp._category === 'Key-Value') {
-                let text = comp.ocr ? comp.ocr.text : (comp.text || 'Not extracted');
-                let confClass = 'text-gray-800';
-                if (comp.ocr && comp.ocr.is_human) confClass = 'text-green-800 font-bold';
-                else if (comp.ocr && comp.ocr.confidence < 0.8) confClass = 'text-red-600';
-                
-                html += `<div style="${styleStr}" class="font-medium text-sm ${confClass}">
-                    ${text}
-                </div>`;
-            } else if (comp._category === 'Paragraph' || comp._category === 'Sentence') {
-                let text = '';
-                if (comp.words && comp.words.length > 0) {
-                    const words = comp.words.map(w => w.ocr ? w.ocr.text : w.text).filter(t => t);
-                    text = words.join(" ");
-                }
-                if (!text) text = comp.ocr ? comp.ocr.text : (comp.text || 'Not extracted');
-                
-                html += `<div style="${styleStr}" class="text-gray-800 leading-relaxed text-justify text-sm">
-                    ${text}
-                </div>`;
-            } else if (comp._category === 'Header' || comp._category === 'Footer') {
-                let text = comp.ocr ? comp.ocr.text : (comp.text || comp._category);
-                html += `<div style="${styleStr}" class="text-gray-400 text-xs text-center uppercase tracking-wider">
-                    ${text}
-                </div>`;
+
+            const text = textOf(comp);
+            if (!text) return;                       // nothing read yet: skip
+
+            if (comp._category === "Header") {
+                html += `<header class="rc-header ${cls}">${text}</header>`;
+            } else if (comp._category === "Footer") {
+                html += `<footer class="rc-footer ${cls}">${text}</footer>`;
+            } else if (comp._category === "Title") {
+                html += `<h2 class="rc-title ${cls}">${text}</h2>`;
+            } else if (comp._category === "Key-Value") {
+                html += `<div class="rc-kv ${cls}">${text}</div>`;
+            } else if (comp._category === "ListItem") {
+                html += `<li class="rc-list-item ${cls}">${text}</li>`;
+            } else {
+                html += `<p class="rc-text ${cls}">${text}</p>`;
             }
         });
-        
-        html += `</div>`;
+
+        html += `</article>`;
     });
-    
+
     contentArea.innerHTML = html;
 }
 

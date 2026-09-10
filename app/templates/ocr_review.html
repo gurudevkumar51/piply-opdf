@@ -1,117 +1,100 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Piply OPDF - OCR Bulk Review</title>
-    <script src="/static/js/tailwind.js"></script>
-</head>
-<body class="bg-gray-100 h-screen flex flex-col font-sans overflow-hidden">
+{% extends "base.html" %}
 
-    <!-- Header -->
-    <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center z-10 sticky top-0 shadow-sm">
-        <h1 class="text-xl font-bold text-blue-900 tracking-tight flex items-center">
-            <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
-            Bulk OCR Review
-        </h1>
-        <div class="flex space-x-4 items-center">
-            <!-- Search Bar -->
-            <div class="relative">
-                <input type="text" id="search-input" placeholder="Search cell ID, name, or text..." 
-                       class="pl-10 pr-4 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 w-64" oninput="window.renderReviewList()">
-                <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                </svg>
-            </div>
-            
-            <div class="flex space-x-4 border-r border-gray-300 pr-4 mr-2">
-                <a href="/" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Dashboard</a>
-                <a href="/manage" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Manage</a>
-                <a href="/review" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">OCR Review</a>
-                <a href="/reconstruct" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Reconstruct</a>
-                <a href="/knowledge" class="text-sm font-bold text-gray-600 hover:text-blue-600 transition">Knowledge Base</a>
-            </div>
-            
-            <div class="flex items-center space-x-2">
-                <select id="doc-selector" class="border border-gray-300 rounded px-3 py-1.5 text-sm min-w-[200px] focus:outline-none shadow-sm cursor-pointer hover:bg-gray-50" onchange="window.selectDocument(this.value)">
-                    <option value="">-- Select Document --</option>
-                </select>
-                <button id="btn-reprocess" class="hidden px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition font-semibold shadow-sm" onclick="window.reprocessDocument()">
-                    Re-Process
-                </button>
-                <button id="btn-resume-ocr" onclick="resumeOcr()" class="hidden bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded transition shadow-sm text-sm font-semibold">
-                    ▶ Resume OCR
-                </button>
-            </div>
-        </div>
-    </header>
+{% block title %}Piply OPDF — Bulk OCR Review{% endblock %}
 
-    <!-- Toolbar -->
-    <div class="bg-gray-50 border-b border-gray-200 px-6 py-2 flex justify-between items-center text-sm shadow-sm">
-        <div class="flex space-x-4 items-center">
-            <div class="font-semibold text-gray-700">Filter by Confidence:</div>
-            <select id="filter-confidence" class="border rounded px-2 py-1" onchange="window.renderReviewList()">
-                <option value="all">Show All</option>
-                <option value="90">Below 90%</option>
-                <option value="80">Below 80%</option>
-                <option value="50">Below 50%</option>
-            </select>
-            
-            <div class="font-semibold text-gray-700 ml-4">Sort:</div>
-            <select id="sort-confidence" class="border rounded px-2 py-1" onchange="window.renderReviewList()">
-                <option value="default">Default (ID)</option>
-                <option value="asc">Confidence (Low to High)</option>
-                <option value="desc">Confidence (High to Low)</option>
-            </select>
+{% block brand_sub %}<span class="brand-sub">Bulk Review</span>{% endblock %}
 
-            <div class="font-semibold text-gray-700 ml-4">Source:</div>
-            <select id="filter-source" class="border rounded px-2 py-1" onchange="window.renderReviewList(true, 1)">
-                <option value="all">All Sources</option>
-                <option value="ocr">OCR (All Engines)</option>
-                <option value="knowledge_base">KNOWLEDGE BASE MATCH</option>
-                <option value="human">HUMAN</option>
-                <option value="human_verified">VERIFIED OCR</option>
-            </select>
-            
-            <div class="ml-6 text-sm font-bold text-gray-600">
-                Cards: <span id="card-count">0</span>
-            </div>
-        </div>
-        
-        <!-- Second row of filters -->
-        <div id="advanced-filters" class="hidden mt-3 flex items-center space-x-4 border-t pt-3 border-gray-200">
-            <div class="font-semibold text-gray-700 text-sm">Filter Page:</div>
-            <div id="page-filters" class="flex flex-wrap gap-2"></div>
-            
-            <div class="font-semibold text-gray-700 text-sm ml-4">Filter Table:</div>
-            <div id="table-filters" class="flex flex-wrap gap-2"></div>
-        </div>
-        
-        <div class="absolute right-6 top-4">
-            <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded shadow text-sm font-bold transition" onclick="window.acceptAllFiltered()">
-                Accept All Filtered
-            </button>
-        </div>
+{% block header_actions %}
+<div class="header-divider"></div>
+
+<div class="header-group">
+    <div class="search-wrap">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search ID, name, or text…"
+               class="field field-sm field-search w-60" oninput="window.renderReviewList()">
     </div>
 
-    <!-- Main Content -->
-    <main class="flex-1 overflow-y-auto p-6 relative">
-        <div id="loading" class="hidden absolute inset-0 bg-white bg-opacity-75 flex justify-center items-center z-10">
-            <div class="text-lg font-bold text-gray-500 animate-pulse">Loading cells...</div>
-        </div>
-        
-        <div id="review-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-6">
-            <div class="col-span-full text-center text-gray-500 mt-10">Select a document to begin review.</div>
-        </div>
-        
-        <!-- Pagination Controls -->
-        <div id="pagination-controls" class="hidden flex justify-center items-center space-x-4 pb-6 mt-4 border-t border-gray-200 pt-4">
-            <button id="btn-prev-page" class="px-4 py-2 bg-white border border-gray-300 rounded shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" onclick="window.changePage(-1)">Previous</button>
-            <span id="page-indicator" class="text-sm font-semibold text-gray-700">Page 1 of 1</span>
-            <button id="btn-next-page" class="px-4 py-2 bg-white border border-gray-300 rounded shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50" onclick="window.changePage(1)">Next</button>
-        </div>
-    </main>
+    <select id="doc-selector" class="field field-auto field-sm min-w-[200px]" onchange="window.selectDocument(this.value)">
+        <option value="">Select document…</option>
+    </select>
 
-    <script src="/static/js/review.js?v=5"></script>
-</body>
-</html>
+    <button id="btn-reprocess" class="btn btn-sm hidden" onclick="window.reprocessDocument()">Re-process</button>
+    <button id="btn-resume-ocr" class="btn btn-accent btn-sm hidden" onclick="resumeOcr()">Resume OCR</button>
+</div>
+{% endblock %}
+
+{% block body %}
+<!-- Primary filters -->
+<div class="toolbar">
+    <div class="toolbar-group flex-wrap">
+        <span class="label-micro">Confidence</span>
+        <select id="filter-confidence" class="field field-auto field-sm" onchange="window.renderReviewList()">
+            <option value="all">Show all</option>
+            <option value="90">Below 90%</option>
+            <option value="80">Below 80%</option>
+            <option value="50">Below 50%</option>
+        </select>
+
+        <div class="header-divider"></div>
+
+        <span class="label-micro">Sort</span>
+        <select id="sort-confidence" class="field field-auto field-sm" onchange="window.renderReviewList()">
+            <option value="default">Default (ID)</option>
+            <option value="asc">Confidence — low to high</option>
+            <option value="desc">Confidence — high to low</option>
+        </select>
+
+        <div class="header-divider"></div>
+
+        <span class="label-micro">Source</span>
+        <select id="filter-source" class="field field-auto field-sm" onchange="window.renderReviewList(true, 1)">
+            <option value="all">All sources</option>
+            <option value="ocr">OCR (all engines)</option>
+            <option value="knowledge_base">Knowledge base match</option>
+            <option value="human">Human</option>
+            <option value="human_verified">Verified OCR</option>
+        </select>
+    </div>
+
+    <div class="toolbar-group">
+        <span class="label-micro">Showing <span id="card-count" class="text-ink num">0</span></span>
+        <button class="btn btn-accent btn-sm" onclick="window.acceptAllFiltered()">Accept all filtered</button>
+    </div>
+</div>
+
+<!-- Secondary filters -->
+<div id="advanced-filters" class="toolbar hidden" style="background: var(--canvas);">
+    <div class="toolbar-group flex-wrap">
+        <span class="label-micro">Page</span>
+        <div id="page-filters" class="flex flex-wrap gap-1.5"></div>
+
+        <div class="header-divider"></div>
+
+        <span class="label-micro">Table</span>
+        <div id="table-filters" class="flex flex-wrap gap-1.5"></div>
+    </div>
+</div>
+
+<main class="flex-1 overflow-y-auto p-5 relative">
+    <div id="loading" class="hidden overlay">
+        <div class="spinner"></div>
+        <span class="label-micro">Loading cells…</span>
+    </div>
+
+    <div id="review-list" class="flex flex-col gap-5">
+        <div class="col-span-full empty-state">Select a document to begin review.</div>
+    </div>
+
+    <div id="pagination-controls" class="hidden justify-center items-center gap-3 mt-6 pt-4 hairline-t">
+        <button id="btn-prev-page" class="btn btn-sm" onclick="window.changePage(-1)">Previous</button>
+        <span id="page-indicator" class="label-micro num">Page 1 of 1</span>
+        <button id="btn-next-page" class="btn btn-sm" onclick="window.changePage(1)">Next</button>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/review.js?v=11"></script>
+{% endblock %}

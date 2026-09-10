@@ -1,8 +1,22 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey
+from sqlalchemy.orm import declarative_base, relationship
 import datetime
 
 KnowledgeBase = declarative_base()
+
+class OCRCluster(KnowledgeBase):
+    """
+    Parent entity representing a single logical concept or normalized text group.
+    This is backed by a SQL VIEW.
+    """
+    __tablename__ = "ocr_cluster"
+
+    id = Column(Integer, primary_key=True) # It's a view, so primary_key is just for SQLAlchemy mapping
+    text_value = Column(String)
+    representative_phash = Column(String)
+    created_at = Column(DateTime)
+    status = Column(String)
+    sample_size = Column(Integer)
 
 class OCRKnowledgeEntry(KnowledgeBase):
     """

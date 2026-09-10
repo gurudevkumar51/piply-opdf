@@ -76,3 +76,5 @@ class FeedbackUpdate(BaseModel):
 class BulkFeedbackUpdate(BaseModel):
     prediction_ids: List[int]
     is_accepted: bool = True
+    user_values: Optional[dict] = None
+

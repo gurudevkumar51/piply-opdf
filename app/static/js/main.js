@@ -3,7 +3,8 @@ let components = [];
 let currentScale = 1.0;
 let currentPage = 1;
 let totalPages = 1;
-const REVIEWABLE_TYPES = ['CELL', 'KEY_VALUE', 'WORD'];
+let activeComponentType = null;
+const REVIEWABLE_TYPES = ['CELL', 'KEY_VALUE', 'LIST_ITEM', 'SENTENCE', 'PARAGRAPH'];
 
 // Elements
 const fileUpload = document.getElementById('file-upload');
@@ -56,7 +57,7 @@ window.selectDocument = async function(docId) {
         currentDocumentId = doc.id;
         window.currentFilename = doc.filename;
         statusBadge.textContent = doc.status.charAt(0).toUpperCase() + doc.status.slice(1);
-        statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-blue-500 text-white";
+        statusBadge.className = "badge badge-info";
         processBtn.disabled = false;
         
         // Load original view by default
@@ -72,7 +73,7 @@ window.selectDocument = async function(docId) {
             loadComponents();
         } else {
             components = [];
-            renderComponentList('TABLE');
+            renderComponentTree();
         }
     } catch (e) {
         console.error("Failed to select document", e);
@@ -87,8 +88,8 @@ fileUpload.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    statusBadge.textContent = "Uploading...";
-    statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500 text-white";
+    statusBadge.textContent = "Uploading…";
+    statusBadge.className = "badge badge-warn";
 
     const formData = new FormData();
     formData.append("file", file);
@@ -103,7 +104,7 @@ fileUpload.addEventListener('change', async (e) => {
         currentDocumentId = data.id;
         window.currentFilename = data.filename;
         statusBadge.textContent = "Uploaded";
-        statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-blue-500 text-white";
+        statusBadge.className = "badge badge-info";
         processBtn.disabled = false;
         
         // Reload document list
@@ -120,8 +121,8 @@ fileUpload.addEventListener('change', async (e) => {
         
     } catch (err) {
         console.error(err);
-        statusBadge.textContent = "Upload Failed";
-        statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white";
+        statusBadge.textContent = "Upload failed";
+        statusBadge.className = "badge badge-bad";
     }
 });
 
@@ -129,8 +130,8 @@ fileUpload.addEventListener('change', async (e) => {
 window.processDocument = async function(engine = 'paddle') {
     if (!currentDocumentId) return;
 
-    statusBadge.textContent = "Processing...";
-    statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500 text-white";
+    statusBadge.textContent = "Processing…";
+    statusBadge.className = "badge badge-warn";
     processBtn.disabled = true;
     const processDropdownBtn = document.getElementById('process-dropdown-btn');
     if (processDropdownBtn) processDropdownBtn.disabled = true;
@@ -149,8 +150,8 @@ window.processDocument = async function(engine = 'paddle') {
         pollStatus();
     } catch (err) {
         console.error(err);
-        statusBadge.textContent = "Process Failed";
-        statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white";
+        statusBadge.textContent = "Process failed";
+        statusBadge.className = "badge badge-bad";
         processBtn.disabled = false;
         if (processDropdownBtn) processDropdownBtn.disabled = false;
     }
@@ -181,7 +182,7 @@ async function pollStatus() {
         
         if (doc.status === 'completed') {
             statusBadge.textContent = "Completed";
-            statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-green-500 text-white";
+            statusBadge.className = "badge badge-ok";
             totalPages = doc.page_count || 1;
             document.getElementById('view-mode').value = 'enhanced';
             window.updateViewer();
@@ -189,7 +190,7 @@ async function pollStatus() {
             loadDocuments(); // Update dropdown status
         } else if (doc.status === 'error') {
             statusBadge.textContent = "Error";
-            statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white";
+            statusBadge.className = "badge badge-bad";
             processBtn.disabled = false;
             loadDocuments(); // Update dropdown status
         } else {
@@ -282,15 +283,18 @@ function nextPage() {
 async function loadComponents() {
     const res = await fetch(`/components/${currentDocumentId}`);
     components = await res.json();
-    
-    // Group components into a tree structure
+    renderComponentTree();
+}
+
+// Groups the flat `components` array into a parent/child tree.
+function buildComponentTree() {
     const compMap = new Map();
     const rootComps = [];
-    
+
     components.forEach(c => {
         compMap.set(c.id, { ...c, children: [] });
     });
-    
+
     components.forEach(c => {
         if (c.parent_id && compMap.has(c.parent_id)) {
             compMap.get(c.parent_id).children.push(compMap.get(c.id));
@@ -298,63 +302,125 @@ async function loadComponents() {
             rootComps.push(compMap.get(c.id));
         }
     });
-    
-    // Auto-select a tab that has root components
+
+    return rootComps;
+}
+
+// Renders tabs + tree from whatever is already in `components`. Kept separate
+// from loadComponents() so callers that have just fetched the components
+// themselves can re-render without issuing a second request.
+function renderComponentTree() {
+    const rootComps = buildComponentTree();
+
     const availableRootTypes = [...new Set(rootComps.map(c => c.component_type))];
-    const preferredOrder = ['TABLE', 'BORDERLESS_TABLE', 'KEY_VALUE', 'PARAGRAPH', 'SENTENCE', 'HEADER', 'FOOTER'];
-    
-    // Generate dynamic tabs
+    const preferredOrder = ['TABLE', 'BORDERLESS_TABLE', 'KEY_VALUE', 'LIST_ITEM', 'PARAGRAPH', 'SENTENCE', 'HEADER', 'FOOTER'];
+
     const tabsContainer = document.getElementById('dynamic-tabs');
     tabsContainer.innerHTML = '';
-    
+
     if (availableRootTypes.length === 0) {
-        componentList.innerHTML = '<div class="text-gray-500 text-sm text-center mt-10">No components found.</div>';
+        componentList.innerHTML = '<div class="empty-state">No components found.</div>';
         drawBBoxes();
         return;
     }
-    
+
     availableRootTypes.sort((a, b) => {
         const ia = preferredOrder.indexOf(a);
         const ib = preferredOrder.indexOf(b);
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
     });
-    
-    let selectedType = availableRootTypes[0];
-    
+
+    // Stay on the tab the user is looking at across re-renders; fall back to
+    // the first available type when it no longer exists (e.g. new document).
+    const selectedType = availableRootTypes.includes(activeComponentType)
+        ? activeComponentType
+        : availableRootTypes[0];
+    activeComponentType = selectedType;
+
     availableRootTypes.forEach(type => {
         const btn = document.createElement('button');
         btn.dataset.type = type;
-        btn.textContent = type.replace('_', ' ');
-        btn.className = (type === selectedType) 
-            ? "tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap"
-            : "tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap";
-            
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.tab-btn').forEach(b => {
-                b.className = "tab-btn px-3 py-1 hover:bg-gray-200 text-gray-600 rounded whitespace-nowrap";
-            });
-            e.target.className = "tab-btn px-3 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap";
+        // Count on the tab: an operator picking what to work on next needs to
+        // know how much is behind each one without clicking through them.
+        const count = rootComps.filter(c => c.component_type === type).length;
+        btn.innerHTML = `${escapeHtml(type.replace(/_/g, ' '))}`
+            + `<span class="tab-count num">${count}</span>`;
+        btn.className = (type === selectedType) ? "tab-btn tab is-active" : "tab-btn tab";
+
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            activeComponentType = type;
             renderComponentList(type, rootComps);
         });
-        
+
         tabsContainer.appendChild(btn);
     });
 
     renderComponentList(selectedType, rootComps);
+    updateReviewProgress(rootComps);
     drawBBoxes();
+}
+
+//: Below this a component is treated as needing a human look. Matches the
+//: threshold the OCR panel already uses for its bulk-accept action.
+const NEEDS_REVIEW_BELOW = 0.95;
+
+function isChecked(c) {
+    const pred = c.predictions && c.predictions.length ? c.predictions[0] : null;
+    return !!(pred && pred.is_human);
+}
+
+function needsReview(c) {
+    return !isChecked(c) && (c.confidence ?? 1) < NEEDS_REVIEW_BELOW;
+}
+
+// Walks the tree, because a table's cells are where the real work is and they
+// live as children rather than at the root.
+function walkAll(nodes, out = []) {
+    nodes.forEach(c => {
+        out.push(c);
+        if (c.children && c.children.length) walkAll(c.children, out);
+    });
+    return out;
+}
+
+function updateReviewProgress(rootComps) {
+    const box = document.getElementById('review-progress');
+    if (!box) return;
+
+    const all = walkAll(rootComps);
+    if (!all.length) { box.hidden = true; return; }
+    box.hidden = false;
+
+    const checked = all.filter(isChecked).length;
+    const low = all.filter(needsReview).length;
+
+    document.getElementById('stat-checked').textContent = checked;
+    document.getElementById('stat-total').textContent = all.length;
+    document.getElementById('stat-low').textContent = low;
+    document.getElementById('review-bar-fill').style.width =
+        `${all.length ? (checked / all.length) * 100 : 0}%`;
 }
 
 function renderComponentList(type, rootComps) {
     componentList.innerHTML = '';
-    const filtered = rootComps.filter(c => c.component_type === type);
-    
+    let filtered = rootComps.filter(c => c.component_type === type);
+
     if (filtered.length === 0) {
-        componentList.innerHTML = '<div class="text-gray-500 text-sm text-center mt-10">No components of this type found.</div>';
+        componentList.innerHTML = '<div class="empty-state">No components of this type found.</div>';
         return;
+    }
+
+    // Worst first, so the operator starts where the system is least sure
+    // rather than reading down a list that is mostly already right.
+    if (document.getElementById('sort-worst-first')?.checked) {
+        filtered = [...filtered].sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1));
     }
 
     filtered.forEach(c => {
         const rootDiv = renderComponentNode(c, 0);
+        if (needsReview(c)) rootDiv.querySelector('.component-item')?.classList.add('needs-review');
         componentList.appendChild(rootDiv);
     });
 }
@@ -365,7 +431,7 @@ function renderComponentNode(c, depth) {
     if (depth > 0) wrapper.style.marginLeft = `${depth}rem`;
 
     const itemDiv = document.createElement('div');
-    itemDiv.className = 'component-item bg-white p-2 rounded shadow-sm border border-gray-200 cursor-pointer hover:border-blue-300 transition my-1';
+    itemDiv.className = 'component-item tree-item';
     itemDiv.dataset.id = c.id;
     
     let displayTitle = `${c.component_type} ${c.id}`;
@@ -377,47 +443,56 @@ function renderComponentNode(c, depth) {
     }
     
     const pred = (c.predictions && c.predictions.length > 0) ? c.predictions[0] : null;
-    const textPreview = pred && pred.predicted_text
-        ? `<div class="text-xs text-gray-700 mt-1 line-clamp-2">${escapeHtml(pred.predicted_text)}</div>`
-        : '';
-        
     let confBadge = '';
     if (pred && pred.is_human) {
-         confBadge = `<span class="bg-green-100 text-green-800 px-1 py-0.5 rounded ml-2">Human</span>`;
+         confBadge = `<span class="badge badge-ok">Human</span>`;
     } else if (c.confidence) {
         const perc = Math.round(c.confidence * 100);
-        let colorClass = 'bg-gray-100 text-gray-600';
-        if (perc < 80) colorClass = 'bg-red-100 text-red-800';
-        else if (perc < 95) colorClass = 'bg-yellow-100 text-yellow-800';
-        confBadge = `<span class="${colorClass} px-1 py-0.5 rounded ml-2">${perc}%</span>`;
+        let toneClass = '';
+        if (perc < 80) toneClass = 'badge-bad';
+        else if (perc < 95) toneClass = 'badge-warn';
+        confBadge = `<span class="badge ${toneClass} num">${perc}%</span>`;
     }
 
     let toggleIcon = '';
     const hasChildren = c.children && c.children.length > 0;
     if (hasChildren) {
-        toggleIcon = `<span class="toggle-icon mr-2 text-gray-500 hover:text-gray-800" data-expanded="false">▶</span>`;
+        toggleIcon = `<span class="toggle-icon tree-toggle" data-expanded="false">▶</span>`;
     }
 
+    // Content first. The operator reads the value and decides; the type and
+    // the database id are reference, not the headline. Leading with
+    // "KEY_VALUE 4527" put the one meaningless string in the most prominent
+    // position on every row.
+    const readable = pred && pred.predicted_text ? escapeHtml(pred.predicted_text) : '';
+    const heading = readable
+        ? `<span class="item-text">${readable}</span>`
+        : `<span class="item-text is-empty">${escapeHtml(displayTitle)}</span>`;
+
+    itemDiv.title = `${displayTitle} · page ${c.page_no}`;
     itemDiv.innerHTML = `
-        <div class="flex justify-between items-center">
-            <span class="font-bold text-gray-800 flex items-center">
+        <div class="item-row">
+            <span class="item-main">
                 ${toggleIcon}
-                ${displayTitle} ${hasChildren ? `<span class="text-xs text-gray-400 ml-1">(${c.children.length} children)</span>` : ''}
+                ${heading}
             </span>
-            <div class="flex items-center text-xs">
-                Pg ${c.page_no}
+            <div class="item-meta">
                 ${confBadge}
             </div>
         </div>
-        ${textPreview}
+        <div class="item-sub">
+            <span class="item-tag">${escapeHtml(c.component_type.replace(/_/g, ' '))}</span>
+            <span class="label-micro num">Pg ${c.page_no}</span>
+            ${hasChildren ? `<span class="label-micro num">${c.children.length} inside</span>` : ''}
+        </div>
     `;
 
     itemDiv.addEventListener('click', (e) => {
         e.stopPropagation();
         
-        // Remove active class from all items
-        document.querySelectorAll('.component-item').forEach(el => el.classList.remove('ring-2', 'ring-blue-500'));
-        itemDiv.classList.add('ring-2', 'ring-blue-500');
+        // Remove active state from all items
+        document.querySelectorAll('.component-item').forEach(el => el.classList.remove('is-selected'));
+        itemDiv.classList.add('is-selected');
         
         renderOCRPanel(c);
         
@@ -441,7 +516,7 @@ function renderComponentNode(c, depth) {
 
     if (hasChildren) {
         const childrenWrapper = document.createElement('div');
-        childrenWrapper.className = 'border-l-2 border-gray-200 ml-2 pl-2 mt-1 hidden';
+        childrenWrapper.className = 'tree-children hidden';
         c.children.forEach(child => {
             childrenWrapper.appendChild(renderComponentNode(child, depth + 1));
         });
@@ -520,10 +595,10 @@ function renderOCRPanel(component) {
     if (isReviewableComponent(component)) {
         imageCropHtml = `
         <div class="mb-4">
-            <span class="text-xs font-semibold text-gray-500 uppercase">Component Image</span>
-            <div class="mt-1 border border-gray-300 rounded shadow-sm overflow-hidden bg-gray-100 flex justify-center p-2">
-                <img src="/cell-image/${component.id}" style="max-width: 100%; max-height: 150px; object-fit: contain;"
-                     onerror="this.parentElement.innerHTML='<span class=\\'text-xs text-gray-400\\'>Image not available</span>'">
+            <span class="label-micro">Component Image</span>
+            <div class="rcard-thumb mt-1.5" style="height: 150px;">
+                <img src="/cell-image/${component.id}" alt="Component crop"
+                     onerror="this.parentElement.innerHTML='<span class=\\'text-muted-2 text-xs\\'>Image not available</span>'">
             </div>
         </div>`;
     }
@@ -533,14 +608,13 @@ function renderOCRPanel(component) {
         let runOcrBtn = '';
         if (isReviewableComponent(component)) {
             runOcrBtn = `
-            <button class="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded shadow text-sm font-bold transition"
-                    onclick="runOcrOnCell(${component.id})">
+            <button class="btn btn-primary btn-block mt-3" onclick="runOcrOnCell(${component.id})">
                 Run OCR on this component
             </button>`;
         }
         ocrPanel.innerHTML = `
             ${imageCropHtml}
-            <div class="text-gray-500 text-sm text-center mt-4">No OCR data for this component.</div>
+            <div class="empty-state">No OCR data for this component.</div>
             ${runOcrBtn}
         `;
         return;
@@ -554,28 +628,26 @@ function renderOCRPanel(component) {
     ocrPanel.innerHTML = `
         ${imageCropHtml}
         <div class="mb-4">
-            <span class="text-xs font-semibold text-gray-500 uppercase">Predicted Text</span>
-            <div class="mt-1 p-2 bg-white border border-gray-300 rounded shadow-sm text-sm">
-                ${pred.predicted_text}
+            <span class="label-micro">Predicted Text</span>
+            <div class="panel mt-1.5 p-2.5 text-ink" style="border-radius: var(--r);">
+                ${escapeHtml(pred.predicted_text)}
             </div>
         </div>
-        
+
         <div class="mb-4">
-            <span class="text-xs font-semibold text-gray-500 uppercase">Confidence</span>
-            <div class="mt-1 text-sm font-bold ${pred.confidence > 0.9 ? 'text-green-600' : 'text-red-600'}">
+            <span class="label-micro">Confidence</span>
+            <div class="mt-1 conf ${pred.confidence > 0.9 ? 'conf-ok' : 'conf-bad'}" style="font-size: 1.125rem;">
                 ${(pred.confidence * 100).toFixed(2)}%
             </div>
         </div>
 
         <div class="mt-auto">
-            <label class="text-xs font-semibold text-gray-500 uppercase">Correction</label>
-            <textarea id="correction-input" class="w-full mt-1 p-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows="3">${userValue}</textarea>
-            
-            <div class="flex space-x-2 mt-4">
-                <button class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded shadow text-sm font-bold transition" onclick="submitFeedback(${pred.id}, true)">
-                    ${isAccepted ? '✓ Accepted' : 'Accept'}
-                </button>
-            </div>
+            <label class="label-micro" for="correction-input">Correction</label>
+            <textarea id="correction-input" class="field mt-1.5" rows="3">${escapeHtml(userValue)}</textarea>
+
+            <button class="btn ${isAccepted ? 'btn-accent' : 'btn-primary'} btn-block mt-3" onclick="submitFeedback(${pred.id}, true)">
+                ${isAccepted ? '✓ Accepted' : 'Accept'}
+            </button>
         </div>
     `;
 }
@@ -596,7 +668,9 @@ async function runOcrOnCell(componentId) {
                 const updated = components.find(c => c.id === componentId);
                 if (updated) {
                     renderOCRPanel(updated);
-                    renderComponents();
+                    // `components` was just refreshed above — re-render the tree
+                    // from it rather than re-fetching via loadComponents().
+                    renderComponentTree();
                 }
             }
         } else {
@@ -626,7 +700,7 @@ async function submitFeedback(predictionId, isAccepted) {
         }
     } catch (e) {
         console.error(e);
-        alert('Failed to submit feedback');
+        toast('Could not save that correction.', 'bad');
     }
 }
 
@@ -641,7 +715,7 @@ async function acceptHighConfidence() {
     });
 
     if (predsToAccept.length === 0) {
-        alert("No pending high-confidence predictions found.");
+        toast('Nothing above 95% is waiting to be accepted.', 'info');
         return;
     }
 
@@ -651,10 +725,64 @@ async function acceptHighConfidence() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prediction_ids: predsToAccept, is_accepted: true })
         });
-        alert(`Accepted ${predsToAccept.length} predictions.`);
+        toast(`Accepted ${predsToAccept.length} predictions.`, 'ok');
         loadComponents(); // Reload state
     } catch (e) {
         console.error(e);
-        alert('Bulk accept failed');
+        toast('Bulk accept failed.', 'bad');
     }
 }
+
+
+// ── Keyboard navigation ──────────────────────────────────────────────────────
+//
+// Data entry is keyboard work. Making an operator reach for the mouse for
+// every one of a hundred components is the difference between a tool they can
+// use all day and one they cannot.
+
+function visibleItems() {
+    return [...document.querySelectorAll('#component-list .component-item')]
+        .filter(el => el.offsetParent !== null);
+}
+
+function moveSelection(step) {
+    const items = visibleItems();
+    if (!items.length) return;
+
+    const current = items.findIndex(el => el.classList.contains('is-selected'));
+    const next = current === -1
+        ? (step > 0 ? 0 : items.length - 1)
+        : Math.min(items.length - 1, Math.max(0, current + step));
+
+    items[next].click();
+    items[next].scrollIntoView({block: 'nearest'});
+}
+
+document.addEventListener('keydown', (e) => {
+    // Never steal keys from someone correcting a value.
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    switch (e.key) {
+        case 'ArrowDown': case 'j':
+            e.preventDefault(); moveSelection(1); break;
+        case 'ArrowUp': case 'k':
+            e.preventDefault(); moveSelection(-1); break;
+        case 'Enter': {
+            const sel = document.querySelector('#component-list .component-item.is-selected');
+            if (sel) { e.preventDefault(); sel.click(); }
+            break;
+        }
+        case 'a': case 'A': {
+            const accept = document.getElementById('accept-btn')
+                || document.querySelector('#ocr-panel button[data-action="accept"]');
+            if (accept && !accept.disabled) { e.preventDefault(); accept.click(); }
+            break;
+        }
+    }
+});
+
+document.getElementById('sort-worst-first')?.addEventListener('change', () => {
+    renderComponentTree();
+});

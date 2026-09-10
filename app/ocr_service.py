@@ -4,20 +4,12 @@ from pydantic import BaseModel
 import os
 
 from piply_opdf.core.interfaces import IKnowledgeMatcher
-from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
-from piply_opdf.modules.ocr_engine import PaddleOCREngine, SmartOCREngine
-from . import models
-
-class OCRResult(BaseModel):
-    text: str
-    confidence: float
-    source: str
-
-from piply_opdf.core.interfaces import IKnowledgeMatcher
-from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
-from piply_opdf.modules.ocr_engine import PaddleOCREngine, SmartOCREngine
-from . import models
 from piply_opdf.ml.pipeline import PipelineOrchestrator
+from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
+from piply_opdf.ocr import read_text
+
+from . import models
+
 
 class OCRResult(BaseModel):
     text: str
@@ -39,23 +31,24 @@ class MLPipelineMatcher(IKnowledgeMatcher):
 # Global instances for the stateless core engines to avoid recreation overhead
 _feature_extractor = DefaultFeatureExtractor()
 
-_engines = {
-    "paddle": PaddleOCREngine(),
-    # Tesseract engine would be instantiated here, assuming we have one in piply_opdf
-    # "tesseract": TesseractOCREngine() if we have it, else fallback to paddle for now
+# Engine selection lives in the package, not here: piply_opdf.ocr holds the
+# registry, reads `ocr.engine` from configuration, and falls back when the
+# primary cannot run. The application only translates its own stored names.
+#
+# "paddle" is the name already written into existing `documents.ocr_engine`
+# rows, so it is kept as an alias rather than migrated.
+_ENGINE_ALIASES = {
+    "paddle": "paddleocr",
+    "paddleocr": "paddleocr",
+    "tesseract": "tesseract",
 }
 
-# If a Tesseract engine exists in the module, let's try to import it
-try:
-    from piply_opdf.modules.ocr_engine import TesseractOCREngine
-    _engines["tesseract"] = TesseractOCREngine()
-except ImportError:
-    pass
 
-def get_engine(engine_name: str):
-    if engine_name in _engines:
-        return _engines[engine_name]
-    return _engines.get("paddle")
+def resolve_engine_name(engine_name: str | None) -> str | None:
+    """Translate a stored engine name into a registry name."""
+    if not engine_name:
+        return None
+    return _ENGINE_ALIASES.get(engine_name.lower(), engine_name)
 
 def extract_cell_text(image_path: str, db: Session, bypass_kb: bool = False, salt: bool = False, engine_name: str = "paddle") -> OCRResult:
     """
@@ -81,16 +74,13 @@ def extract_cell_text(image_path: str, db: Session, bypass_kb: bool = False, sal
                 source=match.get("source", "ml_pipeline")
             )
         
-    # Directly Fallback to Level 6: Selected Engine
-    engine = get_engine(engine_name)
-    try:
-        text, conf = engine.recognize_text(image_path, salt=salt)
-    except TypeError:
-        # Some engines might not support salt parameter
-        text, conf = engine.recognize_text(image_path)
-    
+    # Level 6: the configured OCR engine.
+    reading = read_text(image_path, engine=resolve_engine_name(engine_name), salt=salt)
+
     return OCRResult(
-        text=text,
-        confidence=conf,
-        source=engine_name or "paddle"
+        text=reading.text,
+        confidence=reading.confidence,
+        # The engine that actually read it, which is not always the one asked
+        # for — the package falls back when the primary cannot run.
+        source=reading.engine,
     )

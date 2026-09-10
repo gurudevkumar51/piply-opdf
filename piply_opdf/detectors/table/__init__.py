@@ -1,14 +1,70 @@
 import cv2
 import numpy as np
 from typing import List
+
+from piply_opdf.classification.content import classify, measure
+from piply_opdf.core.types import ComponentType
 from piply_opdf.models.grid import GridBoundingBox
+
+#: Classifier verdicts that disqualify a region from being a table. An ID card,
+#: a photograph or a signature panel all present rectangular edges and pass a
+#: purely geometric grid test, so line structure alone is not sufficient
+#: evidence.
+#:
+#: Two types are deliberately absent:
+#:
+#: * ``UNKNOWN`` — an unrecognised region with real grid structure is more
+#:   likely a sparse table than a picture.
+#: * ``STAMP`` — a seal is small and compact and will not pass the grid test in
+#:   the first place. Including it cost real tables: a bordered invoice printed
+#:   in a single ink reads as one colour with fragmented rules, which is exactly
+#:   the stamp signature, and the whole table was thrown away.
+_NON_TABLE_CONTENT = (
+    ComponentType.IMAGE,
+    ComponentType.LOGO,
+    ComponentType.SIGNATURE,
+)
+
+#: A table is mostly whitespace: thin rules plus text. A region where this much
+#: of the area is ink is a filled graphic, whatever its edges look like.
+_MAX_TABLE_INK_RATIO = 0.35
+
+#: How sure the classifier must be before its verdict throws a table away.
+#: A near-tie means "could be either", and discarding a table on a maybe is
+#: destructive: a bordered table ruled in a single colour reads as a possible
+#: logo, and a real 50-cell table was being dropped on a 0.55 verdict.
+_MIN_REJECT_CONFIDENCE = 0.70
+
 
 class TableDetector:
     """Detects strictly valid table regions and rejects false page-level grids."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         pass
-        
+
+    @staticmethod
+    def _is_text_bearing(crop: np.ndarray) -> bool:
+        """Whether a candidate region's *content* is consistent with a table.
+
+        Grid geometry says a region is rectangular; this says it holds text.
+        Both must hold, otherwise scanned ID cards and photographs are reported
+        as tables — and worse, having been claimed, they never reach the
+        residual sweep that would have classified them correctly.
+        """
+        features = measure(crop)
+        if features is None:
+            return False
+        if features.ink_ratio > _MAX_TABLE_INK_RATIO:
+            return False
+
+        verdict = classify(features)
+        rejected = (
+            verdict.type in _NON_TABLE_CONTENT
+            and verdict.confidence >= _MIN_REJECT_CONFIDENCE
+        )
+        return not rejected
+
+
     def detect_tables(self, image: np.ndarray) -> List[GridBoundingBox]:
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -176,7 +232,13 @@ class TableDetector:
                     new_y = max(0, y + ry - TOP_PADDING)
                     new_w = min(w - new_x, rw + LEFT_PADDING + RIGHT_PADDING)
                     new_h = min(h - new_y, rh + TOP_PADDING + BOTTOM_PADDING)
-                    
+
+                    # Geometry alone is not enough — verify the content too.
+                    if not self._is_text_bearing(
+                        image[new_y:new_y + new_h, new_x:new_x + new_w]
+                    ):
+                        continue
+
                     tables.append(GridBoundingBox(x=new_x, y=new_y, width=new_w, height=new_h))
 
         # Sort top to bottom

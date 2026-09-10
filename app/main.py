@@ -15,7 +15,7 @@ from piply_opdf.config import Config
 
 config = Config()
 UPLOAD_DIR = config.get("environment.upload_dir", "uploads")
-REVIEWABLE_COMPONENT_TYPES = ["CELL", "KEY_VALUE", "WORD"]
+REVIEWABLE_COMPONENT_TYPES = ["CELL", "KEY_VALUE", "LIST_ITEM", "SENTENCE", "PARAGRAPH"]
 
 # Create database tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -123,6 +123,61 @@ async def get_components(document_id: int, db: Session = Depends(database.get_db
 
 
 
+@app.post("/feedback/bulk")
+async def bulk_accept(bulk_update: schemas.BulkFeedbackUpdate, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db)):
+    for pred_id in bulk_update.prediction_ids:
+        prediction = db.query(models.OCRPrediction).filter(models.OCRPrediction.id == pred_id).first()
+        if not prediction:
+            continue
+            
+        submitted_value = None
+        if bulk_update.user_values and str(pred_id) in bulk_update.user_values:
+            submitted_value = bulk_update.user_values[str(pred_id)]
+        elif bulk_update.user_values and pred_id in bulk_update.user_values:
+            submitted_value = bulk_update.user_values[pred_id]
+            
+        if submitted_value is None:
+            submitted_value = prediction.predicted_text
+            
+        is_modified = submitted_value != prediction.predicted_text
+        final_val = submitted_value if is_modified else prediction.predicted_text
+        
+        # ANY feedback submitted through this endpoint is human feedback.
+        final_source = "human"
+            
+        fb = db.query(models.OCRFeedback).filter(models.OCRFeedback.prediction_id == pred_id).first()
+        if not fb:
+            fb = models.OCRFeedback(
+                prediction_id=pred_id,
+                user_value=final_val,
+                is_accepted=bulk_update.is_accepted,
+                source=final_source
+            )
+            db.add(fb)
+        else:
+            fb.user_value = final_val
+            fb.is_accepted = bulk_update.is_accepted
+            fb.source = final_source
+            
+        if bulk_update.is_accepted and prediction.component.manifest_path:
+            from piply_opdf.feedback import register_correction
+            background_tasks.add_task(
+                register_correction, 
+                prediction.component.manifest_path, 
+                final_val, 
+                final_source, 
+                prediction.component.component_type,
+                prediction.component.cluster_id,
+                prediction.component.quality_score,
+                prediction.component.rotation_angle,
+                prediction.component.foreground_ratio,
+                prediction.component.entropy,
+                prediction.component.skeleton_length
+            )
+                
+    db.commit()
+    return {"status": "success", "count": len(bulk_update.prediction_ids)}
+
 @app.post("/feedback/{prediction_id}")
 async def submit_feedback(prediction_id: int, feedback: schemas.FeedbackUpdate, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db)):
     prediction = db.query(models.OCRPrediction).filter(models.OCRPrediction.id == prediction_id).first()
@@ -169,51 +224,6 @@ async def submit_feedback(prediction_id: int, feedback: schemas.FeedbackUpdate, 
             
     db.commit()
     return {"status": "success"}
-        
-
-@app.post("/feedback/bulk")
-async def bulk_accept(bulk_update: schemas.BulkFeedbackUpdate, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db)):
-    for pred_id in bulk_update.prediction_ids:
-        prediction = db.query(models.OCRPrediction).filter(models.OCRPrediction.id == pred_id).first()
-        if not prediction:
-            continue
-        
-        final_val = prediction.predicted_text
-        # ANY feedback submitted through this endpoint is human feedback.
-        final_source = "human"
-            
-        fb = db.query(models.OCRFeedback).filter(models.OCRFeedback.prediction_id == pred_id).first()
-        if not fb:
-            fb = models.OCRFeedback(
-                prediction_id=pred_id,
-                user_value=final_val,
-                is_accepted=True,
-                source=final_source
-            )
-            db.add(fb)
-        else:
-            fb.user_value = final_val
-            fb.is_accepted = True
-            fb.source = final_source
-            
-        if prediction.component.manifest_path:
-            from piply_opdf.feedback import register_correction
-            background_tasks.add_task(
-                register_correction, 
-                prediction.component.manifest_path, 
-                fb.user_value, 
-                fb.source, 
-                prediction.component.component_type,
-                prediction.component.cluster_id,
-                prediction.component.quality_score,
-                prediction.component.rotation_angle,
-                prediction.component.foreground_ratio,
-                prediction.component.entropy,
-                prediction.component.skeleton_length
-            )
-                
-    db.commit()
-    return {"status": "success", "count": len(bulk_update.prediction_ids)}
 
 @app.post("/ocr-cell/{component_id}/reload", response_model=schemas.ComponentResponse)
 async def reload_ocr_cell(component_id: int, strategy: Optional[str] = Query("default"), db: Session = Depends(database.get_db)):
@@ -415,47 +425,64 @@ async def get_knowledge(skip: int = 0, limit: int = 50, search: str = "", sort: 
     registry = get_registry()
     session = registry.get_default_session()
     try:
-        from piply_opdf.database.knowledge_models import OCRKnowledgeEntry
+        from piply_opdf.database.knowledge_models import OCRCluster, OCRKnowledgeEntry
         from sqlalchemy import or_, desc
         
-        query = session.query(OCRKnowledgeEntry)
+        query = session.query(OCRCluster)
         
         if search:
             search_pattern = f"%{search}%"
             query = query.filter(
                 or_(
-                    OCRKnowledgeEntry.text_value.ilike(search_pattern),
-                    OCRKnowledgeEntry.phash.ilike(search_pattern)
+                    OCRCluster.text_value.ilike(search_pattern),
+                    OCRCluster.representative_phash.ilike(search_pattern)
                 )
             )
             
         if sort == "value_asc":
-            query = query.order_by(OCRKnowledgeEntry.text_value.asc())
+            query = query.order_by(OCRCluster.text_value.asc())
         elif sort == "value_desc":
-            query = query.order_by(OCRKnowledgeEntry.text_value.desc())
+            query = query.order_by(OCRCluster.text_value.desc())
         else:
-            query = query.order_by(OCRKnowledgeEntry.id.asc())
+            query = query.order_by(OCRCluster.id.asc())
             
         total = query.count()
         
         if limit == 0:
-            kb_entries = query.offset(skip).all()
+            clusters = query.offset(skip).all()
         else:
-            kb_entries = query.offset(skip).limit(limit).all()
+            clusters = query.offset(skip).limit(limit).all()
+        
+        # Batch fetch all samples for these clusters
+        cluster_ids = [c.id for c in clusters]
+        all_samples = []
+        if cluster_ids:
+            all_samples = session.query(OCRKnowledgeEntry).filter(OCRKnowledgeEntry.cluster_id.in_(cluster_ids)).all()
+            
+        # Group samples by cluster_id
+        samples_by_cluster = {}
+        for s in all_samples:
+            samples_by_cluster.setdefault(s.cluster_id, []).append(s)
         
         results = []
-        for kb in kb_entries:
-            kb_dict = {
-                "id": kb.id,
-                "phash": kb.phash,
-                "text_value": kb.text_value,
-                "source": kb.source,
-                "entropy": kb.entropy,
-                "component_type": kb.component_type,
-                "confidence": kb.confidence,
-                "sample_component_id": None
+        for cluster in clusters:
+            samples = samples_by_cluster.get(cluster.id, [])
+            cluster_dict = {
+                "id": cluster.id,
+                "text_value": cluster.text_value,
+                "representative_phash": cluster.representative_phash,
+                "sample_count": cluster.sample_size or 0,
+                "samples": [{
+                    "id": sample.id,
+                    "phash": sample.phash,
+                    "text_value": sample.text_value,
+                    "source": sample.source,
+                    "component_type": sample.component_type,
+                    "confidence": sample.confidence,
+                    "created_at": sample.created_at.isoformat() if sample.created_at else None
+                } for sample in samples]
             }
-            results.append(kb_dict)
+            results.append(cluster_dict)
             
         return {"total": total, "items": results}
     finally:
