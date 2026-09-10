@@ -166,11 +166,11 @@ class DocumentEnhancer:
         """
         Correct rotational skew by rotating *image* by *angle* degrees.
 
-        Uses white background fill.
-        Note: estimate_skew_angle returns the angle of the text lines.
-        If the angle is positive (downhill), we must rotate counter-clockwise (+angle).
+        Uses white background fill and preserves the page frame — see
+        :func:`piply_opdf.utils.image.rotate_image` for why expansion would
+        break the ratio-based zones used during detection.
         """
-        return rotate_image(image, angle)
+        return rotate_image(image, angle, expand=False)
 
     @staticmethod
     def denoise(image: np.ndarray) -> np.ndarray:

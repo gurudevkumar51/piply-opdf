@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Piply OPDF{% endblock %}</title>
+
+    <script src="/static/js/tailwind.js"></script>
+    <script>
+        /* Remap Tailwind's default palette onto the Ink & Parchment tokens so that
+           any utility class still present in markup renders in-palette instead of
+           reverting to stock Tailwind blue/gray. */
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans:  ['ui-sans-serif', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                        serif: ['Iowan Old Style', 'Palatino Linotype', 'Palatino', 'Georgia', 'ui-serif', 'serif'],
+                        mono:  ['ui-monospace', 'Cascadia Mono', 'Segoe UI Mono', 'Consolas', 'monospace'],
+                    },
+                    colors: {
+                        gray: {
+                            50:  '#fbfaf7', 100: '#f5f3ee', 200: '#e6e2d8', 300: '#d5cfc2',
+                            400: '#9aa0aa', 500: '#767e8c', 600: '#5b6473', 700: '#3d4759',
+                            800: '#2a3346', 900: '#1c2536',
+                        },
+                        blue: {
+                            50:  '#eef2f8', 100: '#e0e8f2', 200: '#cfdbeb', 300: '#a9bdd8',
+                            400: '#6f8db8', 500: '#3a5a8c', 600: '#2f4a76', 700: '#263c60',
+                            800: '#1f3050', 900: '#1c2536',
+                        },
+                        green: {
+                            50:  '#edf4ef', 100: '#dcebe2', 200: '#cfe2d6', 300: '#a7cbb6',
+                            400: '#6ba489', 500: '#2f6b4f', 600: '#285a43', 700: '#214937',
+                            800: '#1b3b2d', 900: '#153025',
+                        },
+                        red: {
+                            50:  '#fbeeec', 100: '#f7ddd9', 200: '#ebcfc9', 300: '#dda99f',
+                            400: '#bd6d5f', 500: '#8c3a32', 600: '#77312a', 700: '#622823',
+                            800: '#50211d', 900: '#411b17',
+                        },
+                        yellow: {
+                            50:  '#fbf4e4', 100: '#f7ead0', 200: '#ecdcb4', 300: '#dcc189',
+                            400: '#bd9a4e', 500: '#8a6a1f', 600: '#75591a', 700: '#604916',
+                            800: '#4e3c12', 900: '#3f300f',
+                        },
+                        amber:  { 50: '#fbf4e4', 100: '#f7ead0', 200: '#ecdcb4', 500: '#8a6a1f', 800: '#4e3c12' },
+                        purple: { 50: '#f7f1e4', 100: '#f0e6d1', 200: '#e3d5b8', 500: '#a17c3a', 600: '#8a6a30', 800: '#6b5225', 900: '#54401d' },
+                        indigo: { 50: '#f7f1e4', 100: '#f0e6d1', 200: '#e3d5b8', 500: '#a17c3a', 600: '#8a6a30', 800: '#6b5225', 900: '#54401d' },
+                    },
+                },
+            },
+        };
+    </script>
+    <script>
+        /* Before first paint: a stored dark theme must not flash light first. */
+        (function () {
+            try {
+                var t = localStorage.getItem('piply-theme');
+                if (t) document.documentElement.setAttribute('data-theme', t);
+            } catch (e) { /* private mode */ }
+        })();
+    </script>
+    <link rel="stylesheet" href="/static/css/theme.css?v=4">
+    {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}h-screen flex flex-col overflow-hidden{% endblock %}">
+
+    {% set path = request.url.path %}
+    <header class="app-header">
+        <div class="header-group">
+            <h1 class="brand">
+                Piply OPDF
+                {% block brand_sub %}{% endblock %}
+            </h1>
+        </div>
+
+        <div class="header-group">
+            <nav class="app-nav">
+                <a href="/"            class="nav-link {% if path == '/' %}is-active{% endif %}">Dashboard</a>
+                <a href="/manage"      class="nav-link {% if path == '/manage' %}is-active{% endif %}">Manage</a>
+                <a href="/review"      class="nav-link {% if path == '/review' %}is-active{% endif %}">OCR Review</a>
+                <a href="/reconstruct" class="nav-link {% if path == '/reconstruct' %}is-active{% endif %}">Reconstruct</a>
+                <a href="/knowledge"   class="nav-link {% if path == '/knowledge' %}is-active{% endif %}">Knowledge Base</a>
+            </nav>
+
+            <button class="theme-toggle" onclick="toggleTheme()" title="Light / dark" aria-label="Toggle light and dark theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="12" cy="12" r="4"/>
+                    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/>
+                </svg>
+            </button>
+
+            {% block header_actions %}{% endblock %}
+        </div>
+    </header>
+
+    {% block body %}{% endblock %}
+
+    <script src="/static/js/ui.js?v=1"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

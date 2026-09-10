@@ -194,33 +194,56 @@ def crop_region(
     return image[y1:y2, x1:x2].copy()
 
 
-def rotate_image(image: CVImage, angle: float) -> CVImage:
+def rotate_image(image: CVImage, angle: float, *, expand: bool = True) -> CVImage:
     """
     Rotate an image by *angle* degrees around its centre.
-    
-    Dynamically expands the bounding box to ensure corners are not clipped
-    during the rotation. Background is filled with white.
+
+    This is the single rotation primitive for the package; deskewing builds on
+    it rather than reimplementing the warp.
+
+    Parameters
+    ----------
+    expand:
+        When True the canvas grows so corners are not clipped. When False the
+        original dimensions are kept and corners are cropped.
+
+        Deskewing passes ``expand=False``: every zone downstream is a *ratio of
+        page height* — the header band is the top 12%, the footer the bottom
+        12% — so growing the canvas adds blank margin that shifts those bands
+        off the content they are meant to cover. Preserving the page frame
+        matters more than preserving corners, which on a document scan are
+        margin.
+
+    Background is filled with white so new area reads as page background to
+    every downstream threshold.
     """
     h, w = image.shape[:2]
     centre = (w // 2, h // 2)
     mat = cv2.getRotationMatrix2D(centre, angle, 1.0)
-    
-    # Calculate new bounding dimensions to prevent clipping
-    cos_a = np.abs(mat[0, 0])
-    sin_a = np.abs(mat[0, 1])
-    
-    new_w = int((h * sin_a) + (w * cos_a))
-    new_h = int((h * cos_a) + (w * sin_a))
-    
-    # Adjust the rotation matrix translation to center the image in the new canvas
-    mat[0, 2] += (new_w / 2) - centre[0]
-    mat[1, 2] += (new_h / 2) - centre[1]
-    
+
+    new_w, new_h = w, h
+
+    if expand:
+        # Calculate new bounding dimensions to prevent clipping
+        cos_a = np.abs(mat[0, 0])
+        sin_a = np.abs(mat[0, 1])
+
+        new_w = int((h * sin_a) + (w * cos_a))
+        new_h = int((h * cos_a) + (w * sin_a))
+
+        # Adjust the rotation matrix translation to centre the image in the new canvas
+        mat[0, 2] += (new_w / 2) - centre[0]
+        mat[1, 2] += (new_h / 2) - centre[1]
+
     rotated = cv2.warpAffine(
         image,
         mat,
         (new_w, new_h),
-        flags=cv2.INTER_LINEAR,
+        # Cubic rather than linear: resampling a document raster softens glyph
+        # edges, and thin marks — a key-value separator colon, a list bullet —
+        # are exactly what the CV strategies key on. Linear interpolation was
+        # measurably losing them at larger correction angles.
+        flags=cv2.INTER_CUBIC,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=(255, 255, 255) if len(image.shape) == 3 else 255,
     )

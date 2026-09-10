@@ -31,8 +31,8 @@ class DatasetManager:
             writer = csv.writer(f)
             # Write Header
             writer.writerow([
-                "image_hash", "width", "height", "aspect_ratio", "edge_density",
-                "stroke_density", "connected_components", "hog_len", "text_value", "label_class"
+                "phash", "width", "height", "aspect_ratio", "edge_density",
+                "stroke_density", "connected_components", "hog_len", "text_value", "label_class", "component_type"
             ])
             
             for entry in kb_entries:
@@ -52,9 +52,9 @@ class DatasetManager:
                     label_class = "symbols"
                     
                 writer.writerow([
-                    entry.image_hash, entry.width, entry.height, entry.aspect_ratio,
+                    entry.phash, entry.width, entry.height, entry.aspect_ratio,
                     entry.edge_density, entry.stroke_density, entry.connected_components,
-                    hog_len, entry.text_value, label_class
+                    hog_len, entry.text_value, label_class, entry.component_type
                 ])
                 
         return path

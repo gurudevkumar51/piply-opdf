@@ -188,15 +188,120 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                 page_num = getattr(f, 'page', getattr(f, 'page_number', 1))
                 insert_component({"bbox": getattr(f, 'bbox', []), "text": getattr(f, 'text', ''), "confidence": getattr(f, 'confidence', 1.0)}, "FOOTER", page_num)
 
+        # 5. Parse key-value pairs
+        for kv in getattr(piply_doc, "key_values", []):
+            if isinstance(kv, dict):
+                page_num = kv.get('page', kv.get('page_number', 1))
+                insert_component(
+                    {
+                        "bbox": kv.get('bbox', []),
+                        "text": kv.get('text', ''),
+                        "key": kv.get('key', ''),
+                        "value": kv.get('value', ''),
+                        "confidence": kv.get('confidence', 1.0),
+                        "image_path": kv.get('image_path'),
+                        "manifest_path": kv.get('manifest_path'),
+                    },
+                    "KEY_VALUE",
+                    page_num,
+                )
+
+        # 6. Parse paragraphs
+        for paragraph in getattr(piply_doc, "paragraphs", []):
+            if isinstance(paragraph, dict):
+                page_num = paragraph.get('page', paragraph.get('page_number', 1))
+                paragraph_id = insert_component(
+                    {
+                        "bbox": paragraph.get('bbox', []),
+                        "text": paragraph.get('text', ''),
+                        "confidence": paragraph.get('confidence', 1.0),
+                        "image_path": paragraph.get('image_path'),
+                        "manifest_path": paragraph.get('manifest_path'),
+                    },
+                    "PARAGRAPH",
+                    page_num,
+                )
+                for word in paragraph.get("words", []):
+                    insert_component(
+                        {
+                            "bbox": word.get("bbox", []),
+                            "text": word.get("text", ""),
+                            "confidence": word.get("confidence", 1.0),
+                            "image_path": word.get("image_path"),
+                            "manifest_path": word.get("manifest_path"),
+                        },
+                        "WORD",
+                        page_num,
+                        parent_id=paragraph_id,
+                    )
+
+        # 6.5 Parse sentences
+        for sentence in getattr(piply_doc, "sentences", []):
+            if isinstance(sentence, dict):
+                page_num = sentence.get('page', sentence.get('page_number', 1))
+                sentence_id = insert_component(
+                    {
+                        "bbox": sentence.get('bbox', []),
+                        "text": sentence.get('text', ''),
+                        "confidence": sentence.get('confidence', 1.0),
+                        "image_path": sentence.get('image_path'),
+                        "manifest_path": sentence.get('manifest_path'),
+                    },
+                    "SENTENCE",
+                    page_num,
+                )
+                for word in sentence.get("words", []):
+                    insert_component(
+                        {
+                            "bbox": word.get("bbox", []),
+                            "text": word.get("text", ""),
+                            "confidence": word.get("confidence", 1.0),
+                            "image_path": word.get("image_path"),
+                            "manifest_path": word.get("manifest_path"),
+                        },
+                        "WORD",
+                        page_num,
+                        parent_id=sentence_id,
+                    )
+
+        # 6.6 Parse list items
+        for li in getattr(piply_doc, "list_items", []):
+            if isinstance(li, dict):
+                page_num = li.get('page', li.get('page_number', 1))
+                li_id = insert_component(
+                    {
+                        "bbox": li.get('bbox', []),
+                        "text": li.get('text', ''),
+                        "confidence": li.get('confidence', 1.0),
+                        "image_path": li.get('image_path'),
+                        "manifest_path": li.get('manifest_path'),
+                    },
+                    "LIST_ITEM",
+                    page_num,
+                )
+                for word in li.get("words", []):
+                    insert_component(
+                        {
+                            "bbox": word.get("bbox", []),
+                            "text": word.get("text", ""),
+                            "confidence": word.get("confidence", 1.0),
+                            "image_path": word.get("image_path"),
+                            "manifest_path": word.get("manifest_path"),
+                        },
+                        "WORD",
+                        page_num,
+                        parent_id=li_id,
+                    )
+
         db.commit()
         
-        # 5. Export OCR Manifest (Initial pass without OCR, later gets updated)
+        # 7. Export OCR Manifest (Initial pass without OCR, later gets updated)
         export_ocr_manifest(document_id, db)
 
         doc_record.status = "completed"
         db.commit()
         
-        # 6. Start OCR in background thread
+        # 8. Start OCR in background thread
         threading.Thread(target=run_ocr_on_cells, args=(document_id,)).start()
         
     except Exception as e:
@@ -207,7 +312,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         db.close()
 
 def run_ocr_on_cells(document_id: int):
-    """Run 3-Layer OCR on all CELL components of a document."""
+    """Run OCR on all reviewable cropped components of a document."""
     from . import ocr_service
     from piply_opdf.modules.feature_extractor import DefaultFeatureExtractor
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=database.engine)
@@ -220,7 +325,7 @@ def run_ocr_on_cells(document_id: int):
     
         cells = db.query(models.Component).filter(
             models.Component.document_id == document_id,
-            models.Component.component_type == "CELL"
+            models.Component.component_type.in_(["CELL", "KEY_VALUE", "WORD"])
         ).all()
         
         for cell in cells:
@@ -231,8 +336,15 @@ def run_ocr_on_cells(document_id: int):
             if not cell.phash:
                 try:
                     features = extractor.extract_features(cell.manifest_path)
-                    if features and "phash" in features:
-                        cell.phash = features["phash"]
+                    if features:
+                        cell.phash = features.get("phash")
+                        cell.cluster_id = features.get("cluster_id")
+                        cell.quality_score = features.get("quality_score")
+                        cell.rotation_angle = features.get("rotation_angle")
+                        cell.foreground_ratio = features.get("foreground_ratio")
+                        cell.entropy = features.get("entropy")
+                        cell.skeleton_length = features.get("skeleton_length")
+                        cell.features_json = json.dumps(features)
                 except Exception as e:
                     pass
             
@@ -254,6 +366,17 @@ def run_ocr_on_cells(document_id: int):
                     )
                     db.add(db_pred)
                     db.commit()
+                    db.refresh(db_pred)
+                    
+                    if ocr_res.source in ["exact_match", "near_match", "human"]:
+                        db_fb = models.OCRFeedback(
+                            prediction_id=db_pred.id,
+                            user_value=ocr_res.text,
+                            is_accepted=True,
+                            source="knowledge_base"
+                        )
+                        db.add(db_fb)
+                        db.commit()
             except Exception as e:
                 print(f"OCR failed for cell {cell.id}: {e}")
                 db.rollback()
@@ -306,7 +429,11 @@ def export_ocr_manifest(document_id: int, db: Session):
         "tables": [],
         "borderless_tables": [],
         "headers": [],
-        "footers": []
+        "footers": [],
+        "key_values": [],
+        "paragraphs": [],
+        "sentences": [],
+        "list_items": []
     }
     
     comp_dict = {c.id: {
@@ -335,6 +462,14 @@ def export_ocr_manifest(document_id: int, db: Session):
                 manifest["headers"].append(comp_dict[c.id])
             elif c.component_type == "FOOTER":
                 manifest["footers"].append(comp_dict[c.id])
+            elif c.component_type == "KEY_VALUE":
+                manifest["key_values"].append(comp_dict[c.id])
+            elif c.component_type == "PARAGRAPH":
+                manifest["paragraphs"].append(comp_dict[c.id])
+            elif c.component_type == "SENTENCE":
+                manifest["sentences"].append(comp_dict[c.id])
+            elif c.component_type == "LIST_ITEM":
+                manifest["list_items"].append(comp_dict[c.id])
                 
     master_manifest_path = os.path.join(work_dir, "master_manifest.json")
     with open(master_manifest_path, 'w', encoding='utf-8') as f:

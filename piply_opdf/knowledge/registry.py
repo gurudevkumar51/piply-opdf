@@ -57,7 +57,7 @@ class KnowledgeRegistry:
         Session = self.databases[db_name]
         with Session() as session:
             # Query just the hashes for lightweight in-memory index
-            hashes = session.query(OCRKnowledgeEntry.image_hash).all()
+            hashes = session.query(OCRKnowledgeEntry.phash).all()
             for (h,) in hashes:
                 self.hash_index[h] = db_name
 
@@ -90,7 +90,7 @@ class KnowledgeRegistry:
             return None
             
         with Session() as session:
-            candidates = session.query(OCRKnowledgeEntry).filter_by(image_hash=phash).all()
+            candidates = session.query(OCRKnowledgeEntry).filter_by(phash=phash).all()
             if not candidates:
                 return None
                 
@@ -134,6 +134,6 @@ class KnowledgeRegistry:
         if best_match_hash and min_dist <= max_distance:
             Session = self.databases[best_match_db]
             with Session() as session:
-                return session.query(OCRKnowledgeEntry).filter_by(image_hash=best_match_hash).first()
+                return session.query(OCRKnowledgeEntry).filter_by(phash=best_match_hash).first()
                 
         return None

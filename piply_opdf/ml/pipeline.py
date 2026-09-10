@@ -43,6 +43,12 @@ class PipelineOrchestrator:
         if exact and exact.text_value is not None:
             return {"text": exact.text_value, "confidence": 1.0, "source": "exact_match"}
 
+        # Level 2: Near Hash Match
+        if phash_str:
+            near = self.registry.search_near_hash(phash_str, max_distance=4)
+            if near and near.text_value is not None:
+                return {"text": near.text_value, "confidence": 1.0, "source": "near_match"}
+
         # User requested to remove ML CACHE (near hash, structural similarity, heuristics)
         return None
 

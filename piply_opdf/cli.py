@@ -266,6 +266,111 @@ def cmd_run(
     ))
 
 
+# ── Layout knowledge ──────────────────────────────────────────────────────────
+
+layout_kb = typer.Typer(help="The layout knowledge base — what kind of region is this?")
+app.add_typer(layout_kb, name="layout-kb")
+
+DEFAULT_LAYOUT_KB = Path("knowledge/piply_opdf_layout-001.db")
+
+StoreOption = Annotated[
+    Path,
+    typer.Option("--store", "-s", help="Layout knowledge database file"),
+]
+
+
+@layout_kb.command("stats")
+def cmd_layout_kb_stats(store: StoreOption = DEFAULT_LAYOUT_KB) -> None:
+    """Show what the layout knowledge base holds, and how much is still usable."""
+    from piply_opdf.knowledge import LayoutKnowledgeStore
+
+    with LayoutKnowledgeStore(store) as opened:
+        stats = opened.stats()
+
+    console.print(Panel(
+        f"[bold]{stats['total']}[/bold] records — "
+        f"[green]{stats['usable']} usable[/green], "
+        f"{'[yellow]' if stats['stale'] else ''}{stats['stale']} stale"
+        f"{'[/yellow]' if stats['stale'] else ''}\n"
+        f"Feature version: [cyan]{stats['current_feature_version']}[/cyan]",
+        title=str(stats["path"]),
+        border_style="cyan",
+    ))
+
+    if stats["by_type"]:
+        table = Table("Component type", "Records")
+        for name, count in sorted(stats["by_type"].items(), key=lambda kv: -kv[1]):
+            table.add_row(name, str(count))
+        console.print(table)
+
+    actions = {k: v for k, v in stats["feedback"].items() if v}
+    if actions:
+        table = Table("Human action", "Count")
+        for name, count in actions.items():
+            table.add_row(name, str(count))
+        console.print(table)
+
+    if stats["stale"]:
+        console.print(
+            f"[yellow]{stats['stale']} record(s) were built by an older feature "
+            f"extractor and are not used for matching.[/yellow]"
+        )
+
+
+@layout_kb.command("export")
+def cmd_layout_kb_export(
+    output: Annotated[Path, typer.Argument(help="JSON file to write")],
+    store: StoreOption = DEFAULT_LAYOUT_KB,
+) -> None:
+    """Write the whole layout knowledge base — records and action log — to JSON."""
+    from piply_opdf.knowledge import LayoutKnowledgeStore
+
+    with LayoutKnowledgeStore(store) as opened:
+        written = opened.export_to(output)
+
+    console.print(
+        f"[green]Exported[/green] {written['knowledge']} record(s) and "
+        f"{written['feedback']} action(s) to [bold]{output}[/bold]"
+    )
+
+
+@layout_kb.command("import")
+def cmd_layout_kb_import(
+    source: Annotated[Path, typer.Argument(help="JSON file written by export")],
+    store: StoreOption = DEFAULT_LAYOUT_KB,
+) -> None:
+    """Read a knowledge file into this store. Everything arrives as manual_import."""
+    from piply_opdf.core.exceptions import KnowledgeBaseError
+    from piply_opdf.knowledge import LayoutKnowledgeStore
+
+    if not source.exists():
+        err_console.print(f"File not found: {source}")
+        raise typer.Exit(1)
+
+    try:
+        with LayoutKnowledgeStore(store) as opened:
+            read = opened.import_from(source)
+    except KnowledgeBaseError as error:
+        err_console.print(str(error))
+        raise typer.Exit(1) from error
+
+    console.print(
+        f"[green]Imported[/green] {read['knowledge']} record(s) and "
+        f"{read['feedback']} action(s) into [bold]{store}[/bold]"
+    )
+    if read["stale"]:
+        console.print(
+            f"[yellow]{read['stale']} of them were built by an older feature "
+            f"extractor. They are stored, but matching will not use them.[/yellow]"
+        )
+
+
+# `layout-kb match <page>` belongs here too, per the plan. It is not written
+# yet: matching a live page against stored knowledge is the LayoutPredictor,
+# which is Phase T. A command that printed a guess without one would be the
+# exact failure this project is built to avoid.
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:

@@ -21,13 +21,22 @@ class Component(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"))
-    component_type = Column(String, index=True) # TABLE, BORDERLESS_TABLE, ROW, COL, CELL, TITLE, HEADER, FOOTER, PARAGRAPH
+    component_type = Column(String, index=True) # TABLE, BORDERLESS_TABLE, ROW, COLUMN, CELL, TITLE, HEADER, FOOTER, KEY_VALUE, PARAGRAPH, WORD
     page_no = Column(Integer)
     bbox = Column(String) # JSON string [x0, y0, x1, y1]
     confidence = Column(Float, default=1.0)
     manifest_path = Column(String, nullable=True) # Optional path to sub-manifest (e.g. table_001_manifest.json)
     parent_id = Column(Integer, ForeignKey("components.id"), nullable=True) # For tree structures (Table -> Row -> Cell)
     phash = Column(String(64), nullable=True) # Perceptual hash for grouping identical cells
+    cluster_id = Column(Integer, nullable=True)
+    quality_score = Column(Float, nullable=True)
+    rotation_angle = Column(Float, nullable=True)
+    foreground_ratio = Column(Float, nullable=True)
+    entropy = Column(Float, nullable=True)
+    skeleton_length = Column(Integer, nullable=True)
+    
+    # Store complete JSON of features to easily transfer to knowledge base
+    features_json = Column(Text, nullable=True)
 
     document = relationship("Document", back_populates="components")
     predictions = relationship("OCRPrediction", back_populates="component", cascade="all, delete-orphan")

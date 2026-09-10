@@ -50,9 +50,9 @@ class ComponentResponse(ComponentBase):
 
 class DocumentBase(BaseModel):
     filename: str
-    file_type: str
-    page_count: int
-    status: str
+    file_type: Optional[str] = None
+    page_count: int = 0
+    status: str = "uploaded"
 
 class DocumentCreate(DocumentBase):
     pass
@@ -76,3 +76,5 @@ class FeedbackUpdate(BaseModel):
 class BulkFeedbackUpdate(BaseModel):
     prediction_ids: List[int]
     is_accepted: bool = True
+    user_values: Optional[dict] = None
+
