@@ -66,8 +66,17 @@ _ADJACENT_BAND = 0.5
 _WRONG_BAND = 0.1
 
 
+#: Parts of a grid. Their shape says nothing on its own — a cell can be any
+#: proportion — but their *containment* does: a cell outside its table is a
+#: broken grid, not an unusual one.
+_GRID_PARTS = (ComponentType.CELL, ComponentType.ROW, ComponentType.COLUMN)
+
+
 def geometry_signal(
-    component: DetectedComponent, page_size: tuple[int, int]
+    component: DetectedComponent,
+    page_size: tuple[int, int],
+    *,
+    parent: DetectedComponent | None = None,
 ) -> Signal:
     """Does the shape agree with the claimed type?
 
@@ -82,6 +91,9 @@ def geometry_signal(
     """
     features = describe(component, page_size)
     kind = component.type
+
+    if kind in _GRID_PARTS:
+        return _containment_signal(component, parent)
 
     if kind == ComponentType.HEADER:
         return _band_signal(features.page_band, "top", "upper", "a header sits at the top")
@@ -106,6 +118,37 @@ def geometry_signal(
                       f"{features.aspect_ratio:.1f}:1 — a line of text is wider than tall")
 
     return Signal(SignalKind.GEOMETRY, None, f"no definitional shape for {kind}")
+
+
+def _containment_signal(
+    component: DetectedComponent, parent: DetectedComponent | None
+) -> Signal:
+    """How much of a grid part lies inside the table it belongs to.
+
+    The one thing a cell's geometry can be wrong about. Its proportions are
+    whatever the document makes them, but a cell that escapes its table means
+    the grid was built from lines that are not there — and that is the failure
+    mode worth catching, because every value in such a table is attributed to
+    the wrong column.
+
+    Graded rather than yes/no: a cell overhanging its table's edge by a few
+    pixels is a rounding artefact, one sitting half outside is not.
+    """
+    if parent is None:
+        return Signal(SignalKind.GEOMETRY, None,
+                      f"no parent recorded, so a {component.type} cannot be placed")
+
+    area = component.bbox.area
+    if not area:
+        return Signal(SignalKind.GEOMETRY, 0.0, "the region has no area")
+
+    inside = component.bbox.intersection_area(parent.bbox) / float(area)
+    if inside > 0.99:
+        return Signal(SignalKind.GEOMETRY, 1.0,
+                      f"sits inside its {parent.type}")
+    return Signal(SignalKind.GEOMETRY, round(inside, 3),
+                  f"{inside:.0%} of it is inside its {parent.type} — "
+                  f"the rest falls outside")
 
 
 def _band_signal(actual: str, expected: str, adjacent: str, reason: str) -> Signal:
@@ -146,6 +189,29 @@ def structural_signal(component: DetectedComponent, crop: Any | None) -> Signal:
     if component.type in ComponentType.CONTAINER:
         return Signal(SignalKind.STRUCTURAL, None,
                       f"a {component.type} is judged by its children, not its own ink")
+
+    # The classifier is not reliable on crops this small, so its verdict is not
+    # used as evidence about them.
+    #
+    # Measured on sample.pdf's grid — median cell 262 x 135 px, a few words:
+    # 80% of cells came back HANDWRITING or SIGNATURE on a page with roughly
+    # one handwritten column. The cause is visible in the features.
+    # `baseline_scatter`, the measurement that exists precisely to separate
+    # print from pen on a scan, reads a median of 0.000 for *both* groups — it
+    # is not discriminating at this scale. That leaves stroke width deciding,
+    # at 0.475 for the "handwriting" group against a 0.43 pen threshold, and
+    # the classifier's own documentation says stroke width cannot make this
+    # call on a scan: printed text measures 0.34-0.40 and handwriting 0.43,
+    # which is no gap at all.
+    #
+    # A signal that is wrong four times in five is worse than no signal: it
+    # would apply a systematic penalty to every cell and bury the ones that
+    # deserve attention. Absent is the honest answer. The classifier weakness
+    # itself is a separate problem — backlog I27.
+    if component.type in _GRID_PARTS:
+        return Signal(SignalKind.STRUCTURAL, None,
+                      f"the classifier is not reliable on crops the size of a "
+                      f"{component.type} — see backlog I27")
 
     from piply_opdf.classification import classify, measure
 
@@ -267,6 +333,7 @@ def signals_for(
     crop: Any | None = None,
     store: Any | None = None,
     history: Mapping[str, Any] | None = None,
+    parent: DetectedComponent | None = None,
 ) -> list[Signal]:
     """Every signal that can be gathered for one region.
 
@@ -276,7 +343,7 @@ def signals_for(
     """
     return [
         detector_signal(component),
-        geometry_signal(component, page_size),
+        geometry_signal(component, page_size, parent=parent),
         knowledge_signal(component, page_size, store),
         structural_signal(component, crop),
         historical_signal(component, history),
@@ -291,6 +358,7 @@ def assess(
     crop: Any | None = None,
     store: Any | None = None,
     history: Mapping[str, Any] | None = None,
+    parent: DetectedComponent | None = None,
 ) -> Confidence:
     """Gather the evidence for one region and combine it. The front door.
 
@@ -300,4 +368,5 @@ def assess(
     """
     return score(signals_for(
         component, page_size, crop=crop, store=store, history=history,
+        parent=parent,
     ))

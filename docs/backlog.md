@@ -9,7 +9,7 @@ approve one it moves here and gets an ID.
 For the scanned-PDF goal specifically — the stages, where each stands, and the
 challenges ranked — see [scanned-documents.md](scanned-documents.md).
 
-*Last updated: 2026-09-10 · 525 tests passing, 0 failing.*
+*Last updated: 2026-09-10 · 535 tests passing, 0 failing.*
 
 | Mark | Meaning |
 |------|---------|
@@ -55,13 +55,13 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | A | Foundation for scanned input | 1 | 4 | 🟠 |
 | C | Operator workbench (UI) | 0 | 19 | 🟠 |
 | D | HTML reconstruction | 0 | 4 | 🟠 |
-| I | Template intelligence | 3 | 26 | 🟠 |
+| I | Template intelligence | 4 | 27 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
 | K | Knowledge architecture | 2 | 7 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **24** | **115** | **91 outstanding** |
+| | **Total** | **25** | **116** | **91 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -724,7 +724,8 @@ reused, by hash. Reusing the **entire layout** is a much larger win.
 | I23 | Never silently trust: evidence, source and review status on every component | ⬜ |
 | I24 | Borderless tables rebuilt around continuation analysis | ⬜ |
 | I25 | Wire the evidence score into the pipeline and the review screen | ✅ |
-| I26 | Score table cells, rows and columns from evidence too | ⬜ |
+| I26 | Score table cells, rows and columns from evidence too | ✅ |
+| I27 | The classifier over-calls handwriting on cell-sized crops | ⬜ |
 
 **I5–I7** come from the template-learning request. Planned in detail in
 [plan-templates.md](plan-templates.md) — **plan only, nothing built**.
@@ -970,15 +971,39 @@ LAYOUT CONFIDENCE 75% · RANKING, NOT A PROBABILITY
 **The limit, stated plainly: only 2 of 202 components carry evidence** — see
 I26.
 
-**I26** ⬜ Scoring reaches detected regions and their segmented children, not
-table cells, rows or columns. On `sample.pdf` that is 200 of 202 components, so
-the *why* panel falls back to "no evidence recorded" almost everywhere. Cells
-are `CellManifest` objects built after stage 9 rather than dicts in the
-detector collections, and their confidence comes from the grid builder, which
-raises a design question worth answering rather than guessing: what does
-`geometry_evidence` mean for a cell? `structural_evidence` clearly does mean
-something — a cell whose ink reads as a signature is worth flagging — so this
-is worth doing, just not by pretending the other five signals apply.
+**I26** ✅ Stage 10 scores every column, row and cell after the grid is built.
+Evidence coverage on `sample.pdf` went from **2 of 202 to 202 of 202**.
+
+Removing the unreliable structural signal also cleaned up the queue: regions
+with a contradicted signal dropped from effectively every cell to **4 of 202**
+— the ones where the grid builder was genuinely unsure.
+
+`geometry_evidence` for a grid part asks the one thing its shape *can* be wrong
+about: does it sit inside the table it claims to belong to? A cell's
+proportions are whatever the document makes them, but a cell escaping its table
+means the grid was built from lines that are not there, and every value in it
+is then attributed to the wrong column. Graded, so a few pixels of overhang is
+a rounding artefact rather than a fault.
+
+`structural_evidence` is **deliberately not used** for grid parts — see I27.
+
+**I27** ⬜ The content classifier over-calls handwriting on crops the size of a
+table cell. Measured on `sample.pdf`'s grid (median cell 262 x 135 px): **80%
+of cells came back `HANDWRITING` or `SIGNATURE`** on a page with roughly one
+handwritten column.
+
+The cause is visible in the features. `baseline_scatter` — the measurement that
+exists precisely to separate print from pen on a scan — reads a median of
+**0.000 for both groups**, so it is not discriminating at this scale. That
+leaves stroke width deciding, at 0.475 for the "handwriting" group against a
+0.43 pen threshold, and `classification/content.py` says in its own docstring
+that stroke width cannot make this call on a scan: printed text measures
+0.34-0.40 and handwriting 0.43, which is no gap at all.
+
+Confidence works around it by not asking the classifier about crops that small.
+The classifier itself is untouched, because it scores 72/72 on the calibration
+corpus at region scale and 51 tests cover it there — this is a scale limit, not
+a general defect, and narrowing it needs its own measurement.
 
 The threshold is the bigger half. On `sample.pdf` the 202 components carry 45
 distinct confidences from 0.25 to 1.0 — they are not all alike — but 199 are

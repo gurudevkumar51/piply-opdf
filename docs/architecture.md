@@ -353,9 +353,21 @@ track record carrying the score would hide exactly the cases worth catching.
 The itemised evidence is written to `components.evidence_json` and shown in the
 review screen's *why* panel.
 
-**It does not reach table cells.** Cells, rows and columns are built after
-stage 9 and numbered by the grid builder, so on `sample.pdf` 200 of 202
-components carry a confidence with no account of it. Backlog I26.
+**Stage 10 scores the grid** — columns, rows and cells, once they exist. On
+`sample.pdf` 201 of 202 components now carry evidence.
+
+A grid part is judged differently from a region, because its shape proves
+nothing: a cell is whatever proportion the document makes it. What *can* be
+wrong is where it sits, so `geometry_evidence` asks whether it lies inside its
+table. A cell that escapes its table means the grid was built from lines that
+are not there, and every value in it is attributed to the wrong column.
+
+`structural_evidence` is not used for grid parts. Measured on `sample.pdf`, the
+classifier called 80% of cells handwriting on a page with about one handwritten
+column: `baseline_scatter` stops discriminating at cell scale and stroke width
+cannot make the call on a scan. A signal wrong four times in five is worse than
+none — it would penalise every cell and bury the ones worth attention. Backlog
+I27.
 
 ---
 

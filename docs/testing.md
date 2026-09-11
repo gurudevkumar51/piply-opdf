@@ -3,7 +3,7 @@
 Every test in the suite, what it protects, and what is **not** covered.
 
 *From `pytest --collect-only`, 2026-08-17.*
-**312 test functions · 525 cases · 525 passing, 0 failing.**
+**320 test functions · 535 cases · 535 passing, 0 failing.**
 
 Targets and measurement plan: [quality.md](quality.md).
 
@@ -33,7 +33,7 @@ encoded so they cannot recur.
 |-------|-----------|-------|------|
 | `test_header_footer_detectors.py` | 11 | 69 | Header/footer across sizes, DPIs, variants |
 | `test_layout_knowledge.py` | 44 | 44 | Describing regions, and the store's two refusals |
-| `test_confidence.py` | 43 | 43 | Evidence signals, weighting, and the review queue |
+| `test_confidence.py` | 53 | 53 | Evidence signals, weighting, and the review queue |
 | `test_classification.py` | 31 | 51 | Rules 0–3, residual sweep, size sanity |
 | `test_detector_parity.py` | 10 | 49 | Digital/scanned parity |
 | `test_panel_detector.py` | 15 | 35 | Rule 1 — frames, cell counting |
@@ -49,9 +49,9 @@ encoded so they cannot recur.
 | `test_phase2_enhance.py` | 13 | 15 | Enhancement operations |
 | `test_form_layouts.py` | 9 | 14 | Multi-column forms, table false positives |
 | `test_phase1_assess.py` | 12 | 12 | Quality assessment |
-| **Total** | **312** | **525** | |
+| **Total** | **320** | **535** | |
 
-All 525 pass. Run time is about 3 minutes — most of it rendering PDFs to
+All 535 pass. Run time is about 3 minutes — most of it rendering PDFs to
 images, which the tests do on purpose rather than committing fixtures.
 
 ---
@@ -248,7 +248,7 @@ it stays interpretable.
 
 ---
 
-## `test_confidence.py` — 43
+## `test_confidence.py` — 53
 
 Confidence derived from evidence rather than declared. Less about any
 particular number than about three properties.
@@ -278,6 +278,11 @@ particular number than about three properties.
 | `test_capacity_is_the_control_an_operator_actually_has` | The worst twenty, not everything below 95% |
 | `test_identical_literal_scores_are_reported_as_unrankable` | **The regression this replaces**, as a test |
 | `test_evidence_derived_scores_separate_enough_to_rank` | The same page, now sortable |
+| `test_a_cell_escaping_its_table_is_a_broken_grid` | A grid built from lines that are not there |
+| `test_a_cells_shape_is_never_held_against_it` | Only containment is definitional for a grid part |
+| `test_a_grid_part_with_no_parent_cannot_be_placed` | None, not zero |
+| `test_the_classifier_is_not_asked_about_crops_the_size_of_a_cell` | **Measured**: it calls 80% of cells handwriting |
+| `test_a_container_is_not_judged_by_the_ink_of_its_children` | A panel holding a signature is still a panel |
 
 The fixture in this suite renders **real glyphs with `cv2.putText`**. An earlier
 version drew rows of solid rectangles as a stand-in for words; the classifier

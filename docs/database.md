@@ -71,7 +71,7 @@ projects and machines.
 | `cluster_id` | Integer | Links to a knowledge cluster |
 | `quality_score`, `rotation_angle`, `foreground_ratio`, `entropy`, `skeleton_length` | Float/Int | Quality metrics |
 | `features_json` | Text | Full feature vector, transferred to knowledge on verification |
-| `evidence_json` | Text | The itemised evidence behind `confidence`. NULL for cells, rows and columns, whose number comes from the grid builder |
+| `evidence_json` | Text | The itemised evidence behind `confidence`. Present for 201 of 202 components on `sample.pdf` |
 
 ## `ocr_predictions`
 

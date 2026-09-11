@@ -762,6 +762,12 @@ class Document:
                         json.dump(b_manifest.model_dump(), f, indent=2)
                         
             
+            # --- STAGE 10: Confidence for the grid ---
+            # After the cells exist, which is why it is not part of stage 9.
+            # A cell's shape proves nothing, so this asks the one thing that
+            # can be wrong — does it sit inside its table — and reads its ink.
+            self._score_grid(page_num)
+
             # Optional: Save P2/P3/P4 metadata to JSON for the page
             import json
             page_meta_dir = out_dir / f"page_{page_num}"
@@ -1040,11 +1046,85 @@ class Document:
                 source.setdefault("metadata", {})["confidence"] = confidence.as_metadata()
             else:
                 source.confidence = round(confidence.score, 4)
+                if hasattr(source, "metadata"):
+                    source.metadata = {**(source.metadata or {}),
+                                       "confidence": confidence.as_metadata()}
 
         if scored:
             self.confidence_reports[page_num] = spread(scored)
             logger.info("Page %d confidence: %s",
                         page_num, self.confidence_reports[page_num].summary())
+
+    def _score_grid(self, page_num: int) -> None:
+        """Score the parts of every table: columns, rows and cells.
+
+        Separate from :meth:`_score_page` because the grid is built after the
+        detectors have finished, and because grid parts answer a different
+        question. A cell's shape says nothing — it is whatever the document
+        makes it — so ``geometry_evidence`` asks the one thing that *can* be
+        wrong: does it sit inside the table it claims to belong to? A cell that
+        escapes its table means the grid was built from lines that are not
+        there, and every value in it is then attributed to the wrong column.
+
+        ``structural_evidence`` is the other half, and on real documents it is
+        the useful one: it reads the cell's own ink, so a column of signatures
+        in a table of typed values stops looking like ordinary text.
+        """
+        from piply_opdf.confidence import assess
+        from piply_opdf.core.types import DetectedComponent
+
+        images = self.page_images.get(page_num)
+        if images is None:
+            return
+        height, width = images.structural.shape[:2]
+        scored = 0
+
+        for table in list(self.tables) + list(self.borderless_tables):
+            if getattr(table, "page", 1) != page_num:
+                continue
+            parent_box = _grid_bbox(getattr(table, "bbox", None))
+            if parent_box is None:
+                continue
+            parent = DetectedComponent(
+                id=str(getattr(table, "table_id", getattr(table, "id", ""))),
+                type=ComponentType.TABLE, page=page_num, bbox=parent_box,
+            )
+
+            for kind, parts in (
+                (ComponentType.COLUMN, getattr(table, "columns", None)),
+                (ComponentType.ROW, getattr(table, "rows", None)),
+                (ComponentType.CELL, getattr(table, "cells", None)),
+            ):
+                for part in parts or []:
+                    # Borderless tables keep rows and columns as bare tuples,
+                    # which have nowhere to record evidence. Skipped rather
+                    # than silently scored into a value nobody reads.
+                    if not hasattr(part, "metadata"):
+                        continue
+                    box = _grid_bbox(getattr(part, "bbox", None))
+                    if box is None:
+                        continue
+
+                    component = DetectedComponent(
+                        id=str(getattr(part, "cell_id", getattr(part, "row_id",
+                              getattr(part, "column_id", "")))),
+                        type=kind, page=page_num, bbox=box,
+                        confidence=getattr(part, "confidence", 1.0),
+                        metadata={"detector": "grid-builder"},
+                    )
+                    confidence = assess(
+                        component, (width, height),
+                        crop=self._crop(images.structural, box),
+                        store=self.layout_store,
+                        parent=parent,
+                    )
+                    part.confidence = round(confidence.score, 4)
+                    part.metadata = {**(part.metadata or {}),
+                                     "confidence": confidence.as_metadata()}
+                    scored += 1
+
+        if scored:
+            logger.info("Page %d: scored %d grid parts from evidence", page_num, scored)
 
     @staticmethod
     def _crop(image, box: BBox):
@@ -1162,3 +1242,16 @@ class Document:
 
     def __repr__(self) -> str:
         return f"Document(source='{self.source_path.name}', work_dir='{self.work_dir}')"
+
+
+def _grid_bbox(value) -> BBox | None:
+    """A BBox from any of the shapes the grid models use.
+
+    ``GridBoundingBox`` for the table models, a bare ``(x, y, w, h)`` tuple for
+    the manifests. Returns None rather than guessing when it is neither.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "to_tuple"):
+        return BBox(*value.to_tuple())
+    return BBox.from_any(value)

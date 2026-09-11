@@ -144,7 +144,7 @@ never resolved silently. Off by default: it costs several seconds a page.
 | **Merged table cells** | rowspan / colspan not represented | F9 |
 | **`SUBHEADING`** | In the vocabulary; nothing produces it yet | I11 |
 | **Calibrated confidence** | The evidence score exists and separates properly, but its weights are argued rather than fitted, so a 0.90 is a *ranking* position, not "right nine times in ten" | I22 |
-| **Evidence for table cells** | Detected regions are scored from evidence; cells, rows and columns are not, so 200 of 202 components on `sample.pdf` show "no evidence recorded" | I26 |
+| **Classifier at cell scale** | It calls 80% of table cells handwriting on a page with one handwritten column, so structural evidence is not used for grid parts | I27 |
 
 Implemented since an earlier version of this table said otherwise: `PANEL`
 (F1), recursive detection inside containers (F2), `STAMP` (F3), `SEPARATOR`,

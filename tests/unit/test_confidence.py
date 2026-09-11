@@ -233,6 +233,73 @@ def test_a_key_value_is_expected_to_be_a_row():
     assert geometry_signal(column, A4_300DPI).value < ALARM_BELOW
 
 
+# ── grid parts are judged by containment, not by shape ───────────────────────
+
+def _table(box=(100, 100, 1000, 800)) -> DetectedComponent:
+    return _component(ComponentType.TABLE, box)
+
+
+@pytest.mark.parametrize("kind", [ComponentType.CELL, ComponentType.ROW, ComponentType.COLUMN])
+def test_a_grid_part_inside_its_table_is_where_it_should_be(kind):
+    part = _component(kind, (200, 200, 150, 60))
+
+    signal = geometry_signal(part, A4_300DPI, parent=_table())
+
+    assert signal.value == 1.0
+    assert "sits inside" in signal.reason
+
+
+def test_a_cell_escaping_its_table_is_a_broken_grid():
+    """The failure worth catching: a grid built from lines that are not there
+    attributes every value to the wrong column."""
+    escaped = _component(ComponentType.CELL, (1050, 200, 150, 60))
+
+    signal = geometry_signal(escaped, A4_300DPI, parent=_table())
+
+    assert signal.value is not None and signal.value < ALARM_BELOW
+    assert "falls outside" in signal.reason
+
+
+def test_a_cell_overhanging_slightly_is_not_condemned():
+    """A few pixels past the edge is a rounding artefact, not a bad grid."""
+    overhanging = _component(ComponentType.CELL, (1090, 200, 20, 60))
+
+    signal = geometry_signal(overhanging, A4_300DPI, parent=_table())
+
+    assert signal.value == pytest.approx(0.5)
+
+
+def test_a_grid_part_with_no_parent_cannot_be_placed():
+    """None, not zero — nobody said it was in the wrong place."""
+    orphan = _component(ComponentType.CELL, (200, 200, 150, 60))
+
+    signal = geometry_signal(orphan, A4_300DPI)
+
+    assert signal.value is None
+    assert "no parent recorded" in signal.reason
+
+
+def test_a_cells_shape_is_never_held_against_it():
+    """A cell can be any proportion the document makes it. Only containment
+    is definitional, so a very wide and a very tall cell score alike."""
+    wide = _component(ComponentType.CELL, (200, 200, 800, 20))
+    tall = _component(ComponentType.CELL, (200, 200, 20, 600))
+    table = _table()
+
+    assert (geometry_signal(wide, A4_300DPI, parent=table).value
+            == geometry_signal(tall, A4_300DPI, parent=table).value == 1.0)
+
+
+def test_the_parent_reaches_the_signal_through_assess():
+    escaped = _component(ComponentType.CELL, (1050, 200, 150, 60))
+
+    with_parent = assess(escaped, A4_300DPI, parent=_table())
+    without = assess(escaped, A4_300DPI)
+
+    assert with_parent.contradictions, "the escape is visible"
+    assert not without.contradictions, "with no parent there is nothing to check"
+
+
 def test_a_type_with_no_definitional_shape_invents_no_evidence():
     """A paragraph can be any shape. Scoring it would be making things up."""
     signal = geometry_signal(_component(ComponentType.PARAGRAPH, (0, 0, 100, 100)), A4_300DPI)
@@ -370,6 +437,30 @@ def test_the_ink_supports_without_confirming_inside_a_family():
 
     assert signal.value == pytest.approx(0.7 * 0.8)
     assert "supports without confirming" in signal.reason
+
+
+def test_the_classifier_is_not_asked_about_crops_the_size_of_a_cell():
+    """Measured on sample.pdf: 80% of cells came back HANDWRITING or SIGNATURE
+    on a page with roughly one handwritten column, because baseline_scatter
+    stops discriminating at that scale and stroke width cannot make the call on
+    a scan. A signal wrong four times in five is worse than no signal — it
+    penalises every cell and buries the ones that deserve attention."""
+    crop = _printed_text_crop()
+
+    for kind in (ComponentType.CELL, ComponentType.ROW, ComponentType.COLUMN):
+        signal = structural_signal(_component(kind, (0, 0, 460, 110)), crop)
+        assert signal.value is None
+        assert "not reliable on crops" in signal.reason
+
+
+def test_a_container_is_not_judged_by_the_ink_of_its_children():
+    """A PANEL holding a signature reads as SIGNATURE. True about the ink, and
+    no evidence at all about the panel."""
+    signal = structural_signal(
+        _component(ComponentType.PANEL, (0, 0, 110, 110)), _printed_mark_crop())
+
+    assert signal.value is None
+    assert "judged by its children" in signal.reason
 
 
 def test_a_region_too_small_to_judge_yields_no_structural_signal():

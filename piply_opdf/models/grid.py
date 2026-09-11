@@ -1,4 +1,4 @@
-from typing import List, Tuple, Any
+from typing import Any, Dict, List, Tuple
 from pydantic import BaseModel, Field
 
 class GridBoundingBox(BaseModel):
@@ -26,6 +26,14 @@ class CellModel(BaseModel):
     col_index: int
     bbox: GridBoundingBox
     confidence: float = 1.0
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class ColumnModel(BaseModel):
     column_id: str
@@ -33,6 +41,10 @@ class ColumnModel(BaseModel):
     col_index: int
     bbox: GridBoundingBox
     confidence: float = 1.0
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class RowModel(BaseModel):
     row_id: str
@@ -40,6 +52,10 @@ class RowModel(BaseModel):
     row_index: int
     bbox: GridBoundingBox
     confidence: float = 1.0
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class TableModel(BaseModel):
     table_id: str
@@ -49,6 +65,10 @@ class TableModel(BaseModel):
     rows: List[RowModel] = Field(default_factory=list)
     cells: List[CellModel] = Field(default_factory=list)
     confidence: float = 1.0
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 # Manifest Models
 class TableManifest(BaseModel):
@@ -64,6 +84,10 @@ class ColumnManifest(BaseModel):
     parent_table: str
     bbox: Tuple[int, int, int, int]
     confidence: float
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class CellManifest(BaseModel):
     cell_id: str
@@ -73,12 +97,20 @@ class CellManifest(BaseModel):
     column: int
     bbox: Tuple[int, int, int, int]
     confidence: float
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class RowManifest(BaseModel):
     row_id: str
     parent_table: str
     bbox: Tuple[int, int, int, int]
     confidence: float
+    #: Free-form extras. Carries the itemised confidence evidence under
+    #: ``metadata["confidence"]``, which is how it reaches the database
+    #: without every caller having to know about it.
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class BorderlessTableModel(BaseModel):
     id: str

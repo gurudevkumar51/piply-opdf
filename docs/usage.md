@@ -143,8 +143,11 @@ the reasoning, which the app stores in `components.evidence_json`.
 `doc.confidence_reports[page]` says whether that page's scores separated enough
 to rank.
 
-Table cells, rows and columns are **not** scored this way — their confidence
-still comes from the grid builder. See I26 in [backlog.md](backlog.md).
+Table cells, rows and columns are scored too, at stage 10 once the grid exists.
+They are judged by **containment** rather than shape — a cell's proportions are
+whatever the document makes them, but a cell outside its table is a broken
+grid. Their ink is not classified: at cell scale the classifier over-calls
+handwriting (I27 in [backlog.md](backlog.md)).
 
 ## Web application
 
