@@ -109,6 +109,9 @@ never resolved silently. Off by default: it costs several seconds a page.
 - A layout knowledge store holds those descriptions with a version block, and
   refuses two things by design: any source that is not a person, and any
   comparison across feature versions
+- **What people confirm is read back**: a region is compared against confirmed
+  ones, and a claimed type that disagrees with them is flagged as a
+  contradiction rather than accepted
 - **A person confirming or correcting a region in the review screen teaches
   the system** — the correction is stored under the type *they* chose, and a
   deleted region is recorded against the detector without entering the
@@ -148,7 +151,6 @@ never resolved silently. Off by default: it costs several seconds a page.
 | **Merged table cells** | rowspan / colspan not represented | F9 |
 | **`SUBHEADING`** | In the vocabulary; nothing produces it yet | I11 |
 | **Calibrated confidence** | The evidence score exists and separates properly, but its weights are argued rather than fitted, so a 0.90 is a *ranking* position, not "right nine times in ten" | I22 |
-| **`knowledge_agreement` signal** | Records exist but nothing compares a live region against them — that is the LayoutPredictor, Phase T | K6 |
 | **Classifier at cell scale** | It calls 80% of table cells handwriting on a page with one handwritten column, so structural evidence is not used for grid parts | I27 |
 
 Implemented since an earlier version of this table said otherwise: `PANEL`

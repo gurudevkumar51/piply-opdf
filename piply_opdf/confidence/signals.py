@@ -266,28 +266,42 @@ def knowledge_signal(
     component: DetectedComponent,
     page_size: tuple[int, int],
     store: Any | None = None,
+    *,
+    features: Any | None = None,
+    parent: DetectedComponent | None = None,
+    siblings: Any = (),
 ) -> Signal:
     """Does the layout knowledge base concur?
 
-    Returns ``None`` today whatever is passed, and the reason is worth stating
-    plainly: comparing a live region against stored records is the
-    LayoutPredictor, and it does not exist yet (Phase T). The store can be read,
-    but nothing can yet say *how close* two records are, and a similarity
-    invented here would be a second, competing definition of the same thing.
+    The only signal that traces back to a human decision, which is why it
+    weighs as heavily as the detector's own. It asks the store: have people
+    confirmed regions like this, and what did they call them?
 
-    What this does check is whether there is anything to compare against at
-    all, so an operator sees "nothing similar seen" rather than a silent gap.
+    Three answers, and the third is the one worth having:
+
+    * Nothing comparable — **unmeasured**. With a sparse store, matching
+      nothing says the store is thin, not that the region is odd.
+    * A confirmed region of the same type resembles it — evidence *for*.
+    * A confirmed region of a *different* type resembles it — evidence
+      **against**, because people have already settled what regions like this
+      are. That is a contradiction, and the confidence model treats it as one.
+
+    It never changes the type. The finding is one of six inputs to a score.
     """
     if store is None:
         return Signal(SignalKind.KNOWLEDGE, None, "no layout knowledge base attached")
 
-    known = store.candidates(component.type, limit=1)
-    if not known:
-        return Signal(SignalKind.KNOWLEDGE, None,
-                      f"nothing of type {component.type} has been confirmed before")
+    from piply_opdf.intelligence import LayoutPredictor
 
-    return Signal(SignalKind.KNOWLEDGE, None,
-                  "records exist, but matching needs the LayoutPredictor (Phase T)")
+    if features is None:
+        features = describe(component, page_size, siblings=siblings, parent=parent)
+
+    try:
+        value, reason = LayoutPredictor(store).verdict(features)
+    except Exception as error:               # a bad store must not fail a page
+        return Signal(SignalKind.KNOWLEDGE, None,
+                      f"layout knowledge base could not be read: {error}")
+    return Signal(SignalKind.KNOWLEDGE, value, reason)
 
 
 # ── track record ─────────────────────────────────────────────────────────────
@@ -334,6 +348,8 @@ def signals_for(
     store: Any | None = None,
     history: Mapping[str, Any] | None = None,
     parent: DetectedComponent | None = None,
+    features: Any | None = None,
+    siblings: Any = (),
 ) -> list[Signal]:
     """Every signal that can be gathered for one region.
 
@@ -344,7 +360,8 @@ def signals_for(
     return [
         detector_signal(component),
         geometry_signal(component, page_size, parent=parent),
-        knowledge_signal(component, page_size, store),
+        knowledge_signal(component, page_size, store,
+                         features=features, parent=parent, siblings=siblings),
         structural_signal(component, crop),
         historical_signal(component, history),
         model_signal(component),
@@ -359,6 +376,8 @@ def assess(
     store: Any | None = None,
     history: Mapping[str, Any] | None = None,
     parent: DetectedComponent | None = None,
+    features: Any | None = None,
+    siblings: Any = (),
 ) -> Confidence:
     """Gather the evidence for one region and combine it. The front door.
 
@@ -368,5 +387,5 @@ def assess(
     """
     return score(signals_for(
         component, page_size, crop=crop, store=store, history=history,
-        parent=parent,
+        parent=parent, features=features, siblings=siblings,
     ))

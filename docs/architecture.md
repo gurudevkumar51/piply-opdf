@@ -320,7 +320,7 @@ named signals**, so a score can be taken apart afterwards.
 | Signal | Weight | Measurable today |
 |--------|--------|------------------|
 | `detector_evidence` — how strongly the rule fired | 3 | ✅ the existing literal, kept as *one* input |
-| `knowledge_agreement` — does the layout knowledge base concur | 3 | ❌ needs the LayoutPredictor (Phase T) |
+| `knowledge_agreement` — does the layout knowledge base concur | 3 | ✅ once people have confirmed regions |
 | `geometry_evidence` — does the shape agree with the claimed type | 2 | ✅ |
 | `structural_evidence` — does the ink support it | 2 | ✅ from `classification.measure` |
 | `model_confidence` — the baseline's own score | 2 | ✅ when the baseline ran |
@@ -421,6 +421,33 @@ person confirms or corrects a region in the review screen, and the pipeline
 reads the feedback log at the start of every run. A correction is stored under
 the type the *person* chose; a deleted region is recorded against the detector
 and enters no knowledge at all.
+
+### Reading it back — the LayoutPredictor
+
+`piply_opdf/intelligence/` compares a live region against what people have
+confirmed. Similarity is a weighted mean over four groups, skipping any group
+neither record can supply:
+
+| Group | Weight | Why |
+|-------|--------|-----|
+| Relationships | 3 | What transfers. A logo is a blob *in a corner, above a heading* |
+| Geometry | 3 | Position and size as fractions of the page |
+| Appearance | 2 | Moves with content — the same field holds different words on two invoices |
+| Shape | 1 | A region pHash reads layout, not content. A tiebreak, not a primary signal |
+
+Measured across two invoice-shaped pages: four regions taught from the first
+are recognised on the second at 97-100%, while a header and a footer — same
+shape, opposite ends — score 0.41 alike.
+
+**It never changes a type.** The finding becomes `knowledge_agreement`, one of
+six confidence inputs. A predictor that could relabel would let one wrong human
+decision propagate silently through every document after it. The most useful
+answer it gives is a *disagreement*: a header claimed as `PARAGRAPH` scores 0.0
+against the confirmed records, which reads as a contradiction and sends the
+region to a person.
+
+**Matching nothing is unmeasured, not negative.** With a sparse store a
+non-match means the store is thin, not that the region is odd.
 
 Schemas: [database.md](database.md). The working database (`piply_opdf.db`) is
 disposable — delete and reprocess. The knowledge databases are the asset.

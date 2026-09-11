@@ -9,7 +9,7 @@ approve one it moves here and gets an ID.
 For the scanned-PDF goal specifically — the stages, where each stands, and the
 challenges ranked — see [scanned-documents.md](scanned-documents.md).
 
-*Last updated: 2026-09-10 · 552 tests passing, 0 failing.*
+*Last updated: 2026-09-10 · 567 tests passing, 0 failing.*
 
 | Mark | Meaning |
 |------|---------|
@@ -57,11 +57,11 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | D | HTML reconstruction | 0 | 4 | 🟠 |
 | I | Template intelligence | 4 | 27 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
-| K | Knowledge architecture | 6 | 7 | 🟠 |
+| K | Knowledge architecture | 7 | 8 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **29** | **116** | **87 outstanding** |
+| | **Total** | **30** | **117** | **87 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -1130,7 +1130,8 @@ and nothing else.
 | K3 | Image-hash appearance features | ✅ |
 | K4 | Versioning on the text knowledge base | ✅ |
 | K5 | Write layout knowledge from the review screen | ✅ |
-| K6 | Template knowledge store | ⬜ |
+| K6 | Read the layout knowledge base back (LayoutPredictor) | ✅ |
+| K8 | Template knowledge store and page fingerprints | ⬜ |
 | K7 | Back up the knowledge bases | ✅ |
 
 **K1 — Layout knowledge store** ✅
@@ -1218,10 +1219,43 @@ with no code change. That is "missing is not zero" paying off.
 `knowledge_agreement` stays unmeasured: records exist now, but comparing a live
 region against them is the LayoutPredictor, which is Phase T.
 
-**K6 — Template knowledge** ⬜
-The third store: "what does a page of this family look like?" Phase T in
-[plan-templates.md](plan-templates.md). Fingerprints carry the same version
-block, and matching refuses across versions for the same reason.
+**K6 — Reading it back** ✅
+`piply_opdf/intelligence/predictor.py`. Until something compared a live region
+against the store, the knowledge only accumulated — it never paid.
+
+Similarity is a weighted mean over four groups, skipping any group neither
+record can supply — the same "missing is not zero" rule the confidence score
+follows. **Relationships and geometry lead** because they are what transfers;
+appearance counts less because it moves with content; shape counts least,
+since a region pHash reads layout rather than content.
+
+Measured on two invoice-shaped pages: teaching four regions from the first
+recognises all four on the second at **97-100%**, while a header and a footer —
+same shape, opposite ends of the page — score 0.41 alike.
+
+The case worth having is the third one. A header claimed as `PARAGRAPH` scores
+**0.0** with the reason *"people confirmed regions like this as HEADER, not
+PARAGRAPH"*, which the confidence model reads as a contradiction.
+
+Three refusals, each deliberate:
+
+* It **never changes a type**. The finding feeds `knowledge_agreement`, one of
+  six confidence inputs. A predictor that could relabel would let one wrong
+  human decision propagate silently — the failure the store's "only humans
+  teach it" rule exists to prevent, reintroduced at the other end.
+* **Matching nothing is unmeasured, not negative.** With a sparse store a
+  non-match says the store is thin. That changes once it is dense and Phase E
+  can price it.
+* **Weak resemblances are not offered at all** (0.7 floor). Missing a match
+  costs a little confidence; announcing a wrong one stops anybody looking
+  again.
+
+**K8 — Template knowledge** ⬜
+The third store: "what does a page of this family look like?" — page
+fingerprints rather than region descriptions. Phase T in
+[plan-templates.md](plan-templates.md). The matcher that consumes it stays
+**off until Phase E can report a false-match rate**, which is the plan's own
+sequencing and not caution for its own sake.
 
 **K7 — Backups** ✅
 `piply-opdf layout-kb backup`, and `piply_opdf.knowledge.backup_all`. Both

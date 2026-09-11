@@ -336,6 +336,8 @@ def test_the_baseline_score_is_used_when_fusion_recorded_one():
 
 
 def test_an_empty_knowledge_base_says_so_rather_than_scoring_zero(tmp_path):
+    """Unmeasured, not negative. Nobody has taught it anything yet, which says
+    nothing about this region."""
     from piply_opdf.knowledge import LayoutKnowledgeStore
 
     component = _component(ComponentType.TABLE, (0, 0, 100, 100))
@@ -345,7 +347,45 @@ def test_an_empty_knowledge_base_says_so_rather_than_scoring_zero(tmp_path):
         signal = knowledge_signal(component, A4_300DPI, store)
 
     assert signal.value is None
-    assert "confirmed before" in signal.reason
+    assert "nothing has been confirmed yet" in signal.reason
+
+
+def test_the_knowledge_signal_reports_agreement_once_people_have_taught_it(tmp_path):
+    """The signal that was dark until the LayoutPredictor existed."""
+    from piply_opdf.knowledge import LayoutKnowledgeStore, Provenance, describe
+
+    header = _component(ComponentType.HEADER, (100, 60, 2280, 140))
+    features = describe(header, A4_300DPI)
+
+    with LayoutKnowledgeStore(tmp_path / "kb.db") as store:
+        store.remember(features, Provenance("first.pdf", 1, "header", "2"),
+                       source="human")
+        signal = knowledge_signal(header, A4_300DPI, store, features=features)
+
+    assert signal.value is not None and signal.value > 0.9
+    assert "matches a confirmed HEADER" in signal.reason
+
+
+def test_the_knowledge_signal_contradicts_a_type_people_disagreed_with(tmp_path):
+    """A detector calling a region something people already settled
+    differently is disagreeing with them, and that is a contradiction."""
+    import dataclasses
+
+    from piply_opdf.knowledge import LayoutKnowledgeStore, Provenance, describe
+
+    box = (100, 60, 2280, 140)
+    confirmed = describe(_component(ComponentType.HEADER, box), A4_300DPI)
+    claimed_wrong = dataclasses.replace(confirmed,
+                                        component_type=ComponentType.PARAGRAPH)
+
+    with LayoutKnowledgeStore(tmp_path / "kb.db") as store:
+        store.remember(confirmed, Provenance("first.pdf", 1, "header", "2"),
+                       source="human")
+        signal = knowledge_signal(_component(ComponentType.PARAGRAPH, box),
+                                  A4_300DPI, store, features=claimed_wrong)
+
+    assert signal.value is not None and signal.value < ALARM_BELOW
+    assert "not PARAGRAPH" in signal.reason
 
 
 def test_a_detectors_track_record_is_read_from_the_feedback_log():

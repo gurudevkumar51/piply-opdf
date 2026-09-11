@@ -3,7 +3,7 @@
 Every test in the suite, what it protects, and what is **not** covered.
 
 *From `pytest --collect-only`, 2026-08-17.*
-**337 test functions · 552 cases · 552 passing, 0 failing.**
+**352 test functions · 567 cases · 567 passing, 0 failing.**
 
 Targets and measurement plan: [quality.md](quality.md).
 
@@ -33,7 +33,8 @@ encoded so they cannot recur.
 |-------|-----------|-------|------|
 | `test_header_footer_detectors.py` | 11 | 69 | Header/footer across sizes, DPIs, variants |
 | `test_layout_knowledge.py` | 61 | 61 | Describing regions, the store's refusals, the learning loop, and backups |
-| `test_confidence.py` | 53 | 53 | Evidence signals, weighting, and the review queue |
+| `test_predictor.py` | 13 | 13 | Matching a region against what people confirmed |
+| `test_confidence.py` | 55 | 55 | Evidence signals, weighting, and the review queue |
 | `test_classification.py` | 31 | 51 | Rules 0–3, residual sweep, size sanity |
 | `test_detector_parity.py` | 10 | 49 | Digital/scanned parity |
 | `test_panel_detector.py` | 15 | 35 | Rule 1 — frames, cell counting |
@@ -49,9 +50,9 @@ encoded so they cannot recur.
 | `test_phase2_enhance.py` | 13 | 15 | Enhancement operations |
 | `test_form_layouts.py` | 9 | 14 | Multi-column forms, table false positives |
 | `test_phase1_assess.py` | 12 | 12 | Quality assessment |
-| **Total** | **337** | **552** | |
+| **Total** | **352** | **567** | |
 
-All 552 pass. Run time is about 3 minutes — most of it rendering PDFs to
+All 567 pass. Run time is about 3 minutes — most of it rendering PDFs to
 images, which the tests do on purpose rather than committing fixtures.
 
 ---
@@ -259,7 +260,7 @@ it stays interpretable.
 
 ---
 
-## `test_confidence.py` — 53
+## `test_confidence.py` — 55
 
 Confidence derived from evidence rather than declared. Less about any
 particular number than about three properties.
@@ -299,6 +300,27 @@ The fixture in this suite renders **real glyphs with `cv2.putText`**. An earlier
 version drew rows of solid rectangles as a stand-in for words; the classifier
 read them as `HANDWRITING`, and it was right to — uniform blocks have neither
 the stroke-width variation nor the ruled baseline that printing has.
+
+---
+
+## `test_predictor.py` — 13
+
+Reading the layout knowledge base back. Two properties matter more than any
+number: it must recognise the same kind of region on a document it has not
+seen, and it must not announce a match that is wrong.
+
+| Test | Protects |
+|------|----------|
+| `test_a_second_document_of_the_same_shape_is_recognised` | **The return on review** — four regions taught from one page, recognised on the next at 97-100% |
+| `test_a_mislabelled_region_is_contradicted_by_what_people_confirmed` | The case worth having: a header called `PARAGRAPH` scores 0.0 |
+| `test_regions_in_different_places_are_not_confused` | Header and footer: same shape, opposite ends, 0.41 alike |
+| `test_an_empty_store_says_nothing_rather_than_zero` | Unmeasured, not negative |
+| `test_matching_nothing_in_a_sparse_store_is_not_evidence_against` | A thin store is not a strange region |
+| `test_weak_resemblances_are_not_offered_as_matches` | A confident wrong match stops anybody looking again |
+| `test_records_from_an_older_extractor_are_never_matched_against` | The predictor must not work around the version filter |
+| `test_a_match_reports_which_groups_agreed` | A score nobody can take apart gets believed or ignored |
+| `test_it_searches_every_type_not_just_the_claimed_one` | Filtering by the claim would hide the wrong claims |
+| `test_a_group_neither_record_has_is_skipped_not_scored_zero` | Missing is not zero, here too |
 
 ---
 

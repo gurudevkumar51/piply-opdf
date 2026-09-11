@@ -119,6 +119,28 @@ GET  /layout-knowledge/stats
 person chose**; `deleted` writes only a feedback row, because a region that
 should not exist teaches the detector rather than the knowledge base.
 
+### Reading it back
+
+```python
+from piply_opdf.intelligence import LayoutPredictor
+
+with LayoutKnowledgeStore("knowledge/piply_opdf_layout-001.db") as store:
+    predictor = LayoutPredictor(store)
+
+    value, reason = predictor.verdict(features)
+    # 0.98  "matches a confirmed HEADER (98%)"
+    # 0.0   "people confirmed regions like this as HEADER, not PARAGRAPH"
+    # None  "nothing has been confirmed yet"
+
+    for match in predictor.match(features):
+        print(match.why())
+```
+
+It **never changes a type** — the result becomes the `knowledge_agreement`
+confidence signal, one of six inputs. And matching nothing returns `None`, not
+a low score: with a sparse store, a non-match means the store is thin rather
+than the region being odd.
+
 ## Confidence
 
 A score derived from six named signals, and taken apart afterwards.

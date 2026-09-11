@@ -170,7 +170,7 @@ Full detail in [capabilities.md](docs/capabilities.md).
 pytest tests/unit -v
 ```
 
-552 tests. Corpora are generated in-process across page sizes and DPIs rather
+567 tests. Corpora are generated in-process across page sizes and DPIs rather
 than committed as fixtures, so tests assert general behaviour rather than
 agreement with one document.
 

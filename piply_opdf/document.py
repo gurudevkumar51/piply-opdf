@@ -1056,20 +1056,20 @@ class Document:
         scored = []
         for source, component, siblings, parent in self._page_components(page_num):
             crop = self._crop(images.structural, component.bbox)
-            confidence = assess(
-                component, (width, height), crop=crop, store=self.layout_store,
-                history=self._history, parent=parent,
-            )
-            scored.append(confidence)
-
-            # Described here and carried along, not re-derived at review time.
-            # Relationships need the tree, and the tree only exists now; by the
-            # time a person confirms the region, its siblings are rows in a
-            # database and putting them back together would be guesswork.
+            # Described first, then handed to the scorer. Relationships need
+            # the tree, and the tree only exists now; by the time a person
+            # confirms the region its siblings are rows in a database, and
+            # putting them back together would be guesswork. The knowledge
+            # signal needs the same description, so it is computed once.
             features = describe(
                 component, (width, height),
                 siblings=siblings, parent=parent, crop=crop,
             )
+            confidence = assess(
+                component, (width, height), crop=crop, store=self.layout_store,
+                history=self._history, parent=parent, features=features,
+            )
+            scored.append(confidence)
 
             if isinstance(source, dict):
                 source["confidence"] = round(confidence.score, 4)
@@ -1173,16 +1173,18 @@ class Document:
                     component.confidence = getattr(part, "confidence", 1.0)
                     component.metadata = {"detector": "grid-builder"}
 
+                    part_crop = self._crop(images.structural, box)
+                    features = describe(
+                        component, (width, height), siblings=siblings,
+                        parent=parent, crop=part_crop,
+                    )
                     confidence = assess(
                         component, (width, height),
-                        crop=self._crop(images.structural, box),
+                        crop=part_crop,
                         store=self.layout_store,
                         history=self._history,
                         parent=parent,
-                    )
-                    features = describe(
-                        component, (width, height), siblings=siblings,
-                        parent=parent, crop=self._crop(images.structural, box),
+                        features=features,
                     )
                     part.confidence = round(confidence.score, 4)
                     part.metadata = {**(part.metadata or {}),

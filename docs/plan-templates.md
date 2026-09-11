@@ -376,10 +376,14 @@ each run — so `historical_reliability`, which was unmeasured because nothing
 wrote to the log, now reports real numbers. What people teach today changes
 what the system doubts tomorrow, with no code change.
 
-`knowledge_agreement` is still unmeasured. Records exist, but *comparing* a
-live region against them is the LayoutPredictor, which is Phase T. That is the
-next thing that would make the knowledge base pay for itself rather than merely
-accumulate.
+`knowledge_agreement` is measured too, now that the **LayoutPredictor** exists
+(`piply_opdf/intelligence/`). Four regions taught from one invoice-shaped page
+are recognised on a second at 97-100%, and a region whose claimed type
+disagrees with what people confirmed scores 0.0 — a contradiction, which sends
+it to review. It reports evidence and never changes a type.
+
+Still open in this phase: page **fingerprints** and the **TemplateMatcher**,
+which stays off until Phase E can report a false-match rate.
 
 One feature extractor in the package feeds all three, so they cannot drift.
 
@@ -692,7 +696,7 @@ The subsystem name, because it is broader than "template matching": it does
    intelligence/
      FingerprintMatcher     builds and compares fingerprint bundles
      TemplateMatcher        decides which page family a page belongs to
-     LayoutPredictor        proposes the expected layout for that family
+     LayoutPredictor  ✅    matches a region against confirmed ones
      GeometryVerifier       checks the expectation against the actual page
 ```
 
@@ -1022,7 +1026,7 @@ those labels exist, precision and recall are unmeasured, not merely low.
 | 7 | R — borderless tables | ⬜ |
 | 8 | E — re-measure | ⬜ waiting on 2 |
 | 9 | N — nested layouts | ⬜ |
-| 10 | T — fingerprint + verifier | ⬜ |
+| 10 | T — fingerprint + verifier | 🔨 LayoutPredictor built; fingerprints and verifier open |
 | 11 | T — template matcher 🧪 | ⬜ off until the false-match rate is known |
 | 12 | U — review UI and redesign | ⬜ |
 | 13 | A — users and login | ⬜ deferred |
