@@ -3,7 +3,7 @@
 Every test in the suite, what it protects, and what is **not** covered.
 
 *From `pytest --collect-only`, 2026-08-17.*
-**269 test functions · 482 cases · 482 passing, 0 failing.**
+**312 test functions · 525 cases · 525 passing, 0 failing.**
 
 Targets and measurement plan: [quality.md](quality.md).
 
@@ -33,6 +33,7 @@ encoded so they cannot recur.
 |-------|-----------|-------|------|
 | `test_header_footer_detectors.py` | 11 | 69 | Header/footer across sizes, DPIs, variants |
 | `test_layout_knowledge.py` | 44 | 44 | Describing regions, and the store's two refusals |
+| `test_confidence.py` | 43 | 43 | Evidence signals, weighting, and the review queue |
 | `test_classification.py` | 31 | 51 | Rules 0–3, residual sweep, size sanity |
 | `test_detector_parity.py` | 10 | 49 | Digital/scanned parity |
 | `test_panel_detector.py` | 15 | 35 | Rule 1 — frames, cell counting |
@@ -48,9 +49,9 @@ encoded so they cannot recur.
 | `test_phase2_enhance.py` | 13 | 15 | Enhancement operations |
 | `test_form_layouts.py` | 9 | 14 | Multi-column forms, table false positives |
 | `test_phase1_assess.py` | 12 | 12 | Quality assessment |
-| **Total** | **269** | **482** | |
+| **Total** | **312** | **525** | |
 
-All 482 pass. Run time is about 3 minutes — most of it rendering PDFs to
+All 525 pass. Run time is about 3 minutes — most of it rendering PDFs to
 images, which the tests do on purpose rather than committing fixtures.
 
 ---
@@ -244,6 +245,44 @@ it stays interpretable.
 | `test_reopening_the_file_keeps_what_was_written` | It is a real file other applications can read |
 
 *(27 of 44 shown — the rest are the parametrised band cases and store filters.)*
+
+---
+
+## `test_confidence.py` — 43
+
+Confidence derived from evidence rather than declared. Less about any
+particular number than about three properties.
+
+| Test | Protects |
+|------|----------|
+| `test_an_unmeasured_signal_does_not_drag_the_score_down` | **Missing is not zero** — the rule the design rests on |
+| `test_a_region_nobody_could_measure_scores_zero` | Not 1.0 — nothing sayable means look at it |
+| `test_signals_are_weighted_not_averaged_flat` | Track record must not carry the score |
+| `test_the_same_signal_twice_is_refused` | Would silently double that signal's weight |
+| `test_a_single_contradiction_sends_a_comfortable_component_to_review` | One bad signal outranks a good average |
+| `test_the_score_itself_is_not_distorted_to_force_a_review` | Number and decision stay separate |
+| `test_an_operator_can_ask_why` | The score can be taken apart |
+| `test_unmeasured_signals_are_shown_not_hidden` | "Nothing similar seen" is itself worth knowing |
+| `test_the_evidence_travels_with_the_answer` | The governing principle, as stored metadata |
+| `test_a_header_in_the_middle_of_the_page_does_not` | Geometry contradicts a misplaced header |
+| `test_a_header_one_band_off_is_doubted_not_condemned` | A wide top margin is not a broken detection |
+| `test_a_separator_is_scored_against_being_a_line` | A rule is long and thin, by definition |
+| `test_a_container_too_small_to_hold_a_cell_is_doubted` | A table has to be big enough to be one |
+| `test_a_type_with_no_definitional_shape_invents_no_evidence` | A paragraph can be any shape |
+| `test_the_ink_confirms_a_claim_it_matches` | Structural evidence from the image |
+| `test_the_ink_contradicts_a_claim_from_the_wrong_family` | Catches a detector firing for the wrong reason |
+| `test_the_ink_supports_without_confirming_inside_a_family` | The classifier has no concept of a header |
+| `test_an_empty_knowledge_base_says_so_rather_than_scoring_zero` | Absent, with a reason |
+| `test_a_detectors_track_record_is_read_from_the_feedback_log` | Historical reliability wired to `tally()` |
+| `test_a_contradicted_region_jumps_the_queue` | Specific fault beats a smooth ranking |
+| `test_capacity_is_the_control_an_operator_actually_has` | The worst twenty, not everything below 95% |
+| `test_identical_literal_scores_are_reported_as_unrankable` | **The regression this replaces**, as a test |
+| `test_evidence_derived_scores_separate_enough_to_rank` | The same page, now sortable |
+
+The fixture in this suite renders **real glyphs with `cv2.putText`**. An earlier
+version drew rows of solid rectangles as a stand-in for words; the classifier
+read them as `HANDWRITING`, and it was right to — uniform blocks have neither
+the stroke-width variation nor the ruled baseline that printing has.
 
 ---
 

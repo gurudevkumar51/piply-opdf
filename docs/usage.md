@@ -94,6 +94,51 @@ accuracy figure needs the gold corpus.
 
 Schema: [database.md](database.md).
 
+## Confidence
+
+A score derived from six named signals, and taken apart afterwards.
+
+```python
+from piply_opdf.confidence import assess, review_queue, spread
+
+assessed = [(c, assess(c, page_size=(2480, 3508), crop=crops.get(c.id)))
+            for c in components]
+
+# Is the ranking worth sorting by at all?
+print(spread([conf for _, conf in assessed]).summary())
+# 8 components, 0.43-0.91, variation 0.137 - usable ranking
+
+# The twenty worst, contradicted regions first
+for item in review_queue(assessed, capacity=20):
+    print(f"{item.score:.2f}  {item.component.type}")
+    print(item.why())
+```
+
+`why()` prints the case for the score, including what nobody could measure:
+
+```
+0.43  (ranking, not a probability)
+  detector_evidence      0.60   graphic_cv rule fired
+  geometry_evidence      0.17   aspect 2.0:1 against 12:1 for a rule
+  knowledge_agreement    --     no layout knowledge base attached
+  structural_evidence    --     no crop available
+  historical_reliability --     no review history yet
+  model_confidence       --     baseline did not run on this region
+```
+
+Three things to know before using it:
+
+- **The score is a ranking, not a probability.** `Confidence.calibrated` is
+  `False` until the weights are fitted against the Phase E corpus. Prefer
+  `capacity=N` over a threshold — "the worst twenty" is answerable from a
+  ranking, "everything probably wrong" is not.
+- **A signal nobody could measure is `None`, never 0.** Four of the six are
+  often unmeasurable today; they turn on by themselves as data arrives.
+- **`needs_review()` is separate from the score.** One contradicted signal
+  sends a region to a person however comfortable the average.
+
+Nothing in the pipeline calls this yet — see I25 in [backlog.md](backlog.md).
+
 ## Web application
 
 The web parts are an optional extra, because the library does not need them:

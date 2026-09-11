@@ -5,8 +5,9 @@ what was still useful from it lives in [Beyond the parser](#beyond-the-parser),
 [Rules for every step](#rules-for-every-step) and
 [What I need from you](#what-i-need-from-you).
 
-**Status: Phase Q and Phase B are built. Phase K is part built — the layout
-knowledge store exists and is empty. Everything else is plan.**
+**Status: Phase Q and Phase B are built. Phases K and C are part built — the
+layout knowledge store exists and is empty; confidence is derived from evidence
+but not yet calibrated or wired in. Everything else is plan.**
 See [Progress](#progress) for the line-by-line position.
 
 *Fifth revision. Confidence becomes an evidence score. Nothing is trusted
@@ -467,6 +468,12 @@ guess without one would be precisely the failure the governing principle names.
 
 ## Phase C — Confidence as an evidence score
 
+**🔨 Part built.** The evidence model, the six signals and the review queue
+exist (`piply_opdf/confidence/`, 43 tests). The **calibration** does not — the
+weights are argued rather than fitted, so the score is a ranking, and
+`Confidence.calibrated` is `False` everywhere. Nothing in the pipeline calls it
+yet either; that is I25 in [backlog.md](backlog.md).
+
 Not "confidence has to be earned", which is vague. The rule:
 
 > **Confidence must be derived from measurable evidence and calibrated against
@@ -491,7 +498,7 @@ confidence = f(
 has been right 90% of the time is not therefore right about *this* region — the
 other five signals are about the region in front of it.
 
-### Calibration
+### Calibration  ⬜ *waiting on Phase E*
 
 `f` is not invented. It is **fitted against the labelled corpus from Phase E**,
 so that a component reported at 0.90 is right about 90% of the time. Until that
@@ -506,6 +513,24 @@ field in Phase K is for.
 Today every value is a **literal in the code** — a paragraph is always 0.70, a
 logo always 0.85. They mean "this rule fired". Consequence: "review the doubtful
 ones" selects everything.
+
+Confirmed by running the app: on `sample.pdf` the review screen reports
+**167 of 202 components as "need a look"**. A list that long is a list nobody
+works through, so in practice nothing is reviewed.
+
+The measured difference on a synthetic page with three deliberately misplaced
+regions:
+
+| | Score range | Spread | Usable as a ranking |
+|---|---|---|---|
+| Literals | 0.70 everywhere | 0.000 | No |
+| Evidence | 0.43 – 0.91 | 0.137 | Yes — the three bad regions sort to the front |
+
+**Capacity, not threshold.** While the score is a ranking, "the worst twenty"
+is answerable and "everything probably wrong" is not, so
+`review_queue(..., capacity=N)` is the primary control. `spread()` reports when
+scores bunch too closely to rank at all, which is the failure being replaced,
+stated as something the system can notice about itself.
 
 ### Evidence is stored, not just the number
 
@@ -975,7 +1000,7 @@ those labels exist, precision and recall are unmeasured, not merely low.
 | 3 | E — measure the current detectors | ⬜ waiting on 2 |
 | 4 | B — baseline model + fusion | ✅ done |
 | 5 | K — knowledge architecture | 🔨 layout store built, nothing writes to it |
-| 6 | C — confidence as an evidence score | ⬜ waiting on 2 |
+| 6 | C — confidence as an evidence score | 🔨 evidence built; calibration waits on 2 |
 | 7 | R — borderless tables | ⬜ |
 | 8 | E — re-measure | ⬜ waiting on 2 |
 | 9 | N — nested layouts | ⬜ |

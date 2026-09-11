@@ -182,7 +182,7 @@ Two things this number cannot tell you:
 
 ## Current state
 
-Detection is verified by **482 tests**, but almost entirely on synthetic
+Detection is verified by **525 tests**, but almost entirely on synthetic
 corpora, asserting *behaviour* rather than *accuracy*:
 
 - ✅ digital and scanned twins produce identical output

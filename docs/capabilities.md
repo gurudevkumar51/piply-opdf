@@ -109,6 +109,11 @@ never resolved silently. Off by default: it costs several seconds a page.
 - A layout knowledge store holds those descriptions with a version block, and
   refuses two things by design: any source that is not a person, and any
   comparison across feature versions
+- Confidence can be **derived from six named signals** rather than declared, and
+  taken apart afterwards — an operator asking "why is this only 0.55?" gets an
+  itemised answer, including which signals nobody could measure
+- A review queue ordered worst-first, cut by **how much time a person has**
+  rather than by a threshold the score cannot yet justify
 
 ### Segmentation
 
@@ -134,7 +139,8 @@ never resolved silently. Off by default: it costs several seconds a page.
 | **Character-level confidence** | Correction is whole-word only | G4 |
 | **Merged table cells** | rowspan / colspan not represented | F9 |
 | **`SUBHEADING`** | In the vocabulary; nothing produces it yet | I11 |
-| **Calibrated confidence** | Every value is a literal in the code, so "review the doubtful ones" selects everything | I22 |
+| **Calibrated confidence** | The evidence score exists and separates properly, but its weights are argued rather than fitted, so a 0.90 is a *ranking* position, not "right nine times in ten" | I22 |
+| **Confidence wired into the pipeline** | Nothing calls `assess()` yet, so the review screen still flags 167 of 202 components on `sample.pdf` | I25 |
 
 Implemented since an earlier version of this table said otherwise: `PANEL`
 (F1), recursive detection inside containers (F2), `STAMP` (F3), `SEPARATOR`,

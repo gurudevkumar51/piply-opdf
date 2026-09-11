@@ -9,7 +9,7 @@ approve one it moves here and gets an ID.
 For the scanned-PDF goal specifically — the stages, where each stands, and the
 challenges ranked — see [scanned-documents.md](scanned-documents.md).
 
-*Last updated: 2026-09-10 · 482 tests passing, 0 failing.*
+*Last updated: 2026-09-10 · 525 tests passing, 0 failing.*
 
 | Mark | Meaning |
 |------|---------|
@@ -55,13 +55,13 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | A | Foundation for scanned input | 1 | 4 | 🟠 |
 | C | Operator workbench (UI) | 0 | 19 | 🟠 |
 | D | HTML reconstruction | 0 | 4 | 🟠 |
-| I | Template intelligence | 0 | 24 | 🟠 |
+| I | Template intelligence | 2 | 25 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
 | K | Knowledge architecture | 2 | 7 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **21** | **113** | **92 outstanding** |
+| | **Total** | **23** | **114** | **91 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -718,11 +718,12 @@ reused, by hash. Reusing the **entire layout** is a much larger win.
 | I17 | Page orientation detection | 🔄 |
 | I18 | Trained baseline layout detector + fusion with Piply's rules | ✅ |
 | I19 | Versioning on knowledge records and fingerprints | ⬜ |
-| I20 | Human actions recorded by kind, not agreed/disagreed | ⬜ |
+| I20 | Human actions recorded by kind, not agreed/disagreed | ✅ |
 | I21 | Third image: structural reference (orientation + deskew only) | ✅ |
-| I22 | Confidence as a calibrated evidence score | ⬜ |
+| I22 | Confidence as a calibrated evidence score | 🔨 |
 | I23 | Never silently trust: evidence, source and review status on every component | ⬜ |
 | I24 | Borderless tables rebuilt around continuation analysis | ⬜ |
+| I25 | Wire the evidence score into the pipeline and the review screen | ⬜ |
 
 **I5–I7** come from the template-learning request. Planned in detail in
 [plan-templates.md](plan-templates.md) — **plan only, nothing built**.
@@ -895,10 +896,14 @@ corpus — swapping one unmeasured detector for another is not progress.
 `source_page` on every knowledge record and fingerprint, old knowledge becomes
 impossible to interpret and silently poisons new results.
 
-**I20** ⬜ `CONFIRMED` / `CORRECTED` / `ADDED` / `DELETED` / `REJECTED` rather
+**I20** ✅ `CONFIRMED` / `CORRECTED` / `ADDED` / `DELETED` / `REJECTED` rather
 than a single agreed/disagreed counter. They mean different things:
 `CORRECTED` counts against a detector's accuracy, `ADDED` against recall,
 `DELETED` against precision. Collapsing them throws that away.
+
+Delivered as `piply_opdf.knowledge.actions` (see K2), with `tally()` splitting
+the counts into the two questions they answer. Nothing writes to the log yet —
+that is K5.
 
 **I21** ✅ Three images per page — `piply_opdf/quality/images.py`. Untouched `original`, `structural`
 (orientation and deskew only), and `working` (enhanced, derived from
@@ -907,7 +912,7 @@ only OCR reads `working`.** Comparing template coordinates against a page
 rotated 2 degrees creates mismatch that has nothing to do with layout, and
 sharpening for legibility thins the rules table detection needs.
 
-**I22** ⬜ Confidence must be **derived from measurable evidence and calibrated
+**I22** 🔨 Confidence must be **derived from measurable evidence and calibrated
 against human-labelled results** — not declared, and not merely "earned".
 Combines detector evidence, geometry evidence, knowledge agreement, structural
 evidence, historical reliability and the baseline model's own score, then fitted
@@ -915,12 +920,37 @@ against the Phase E corpus so 0.90 means right about 90% of the time. Historical
 agreement is one input, not the whole score. Re-fitted whenever a detector
 version changes.
 
+**Built: the evidence part.** `piply_opdf/confidence/` — six named signals,
+weighted combination, and the rule that a signal nobody could measure is
+``None`` rather than zero. Four signals are measurable today; knowledge
+agreement and historical reliability return `None` with a reason until there is
+data behind them. 43 tests.
+
+Measured on a synthetic page: scores spread 0.43–0.91 where the literals gave a
+single flat band, and the three deliberately misplaced regions sort to the
+front of the queue.
+
+**Not built: the calibration.** The weights are argued, not fitted, so the score
+is a **ranking, not a probability** — `Confidence.calibrated` is `False`
+everywhere and says so. Fitting needs the Phase E corpus. Until then
+`review_queue(..., capacity=N)` is the honest control: "the worst twenty" is
+answerable from a ranking, "everything probably wrong" is not.
+
+**Not built: the wiring.** No detector calls it yet — see I25.
+
 **I23** ⬜ The governing principle: *never silently trust a classification.*
 Wrong classification + high confidence + no review = a silently bad document,
 and nobody catches it later. Every component carries `predicted_type`,
 itemised `evidence`, `confidence`, `source_detector`, `knowledge_match` and
 `review_status`. Insufficient confidence means human review. **A template match
 can never override geometry verification.**
+
+**I25** ⬜ Nothing calls `assess()` yet. `document.py` should attach a
+`Confidence` to every component and store `as_metadata()` on it, and the review
+screen should replace "show everything below 95%" with a capacity-based queue
+and a *why* panel. Until this lands the evidence score exists but changes
+nothing an operator sees: the screen still flags 167 of 202 components on
+`sample.pdf`.
 
 **I24** ⬜ "Columns → rows → cells" fails on the documents this targets: a
 wrapped description looks like new rows, so every column after it misaligns.

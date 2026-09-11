@@ -298,11 +298,53 @@ and halved every confidence, which made the penalty meaningless.
 ### A caution about these numbers
 
 Levels 1 and 2 are real: a human verified it, or the image is the same image.
-**Everything below that is currently a literal written into the code** — a
-paragraph is always 0.70, a logo always 0.85. They mean "this rule fired", not
-"right this often", so today a threshold does not separate safe from unsafe.
-Making them real is backlog I22, and it is the largest single blocker to
-routing work by confidence at all.
+**Everything below that is a literal written into the code** — a paragraph is
+always 0.70, a logo always 0.85. They mean "this rule fired", not "right this
+often", so a threshold over them does not separate safe from unsafe. Confirmed
+by running the app: the review screen flags 167 of 202 components on
+`sample.pdf`.
+
+---
+
+## Confidence as evidence
+
+`piply_opdf/confidence/` replaces the literal with a number **derived from six
+named signals**, so a score can be taken apart afterwards.
+
+| Signal | Weight | Measurable today |
+|--------|--------|------------------|
+| `detector_evidence` — how strongly the rule fired | 3 | ✅ the existing literal, kept as *one* input |
+| `knowledge_agreement` — does the layout knowledge base concur | 3 | ❌ needs the LayoutPredictor (Phase T) |
+| `geometry_evidence` — does the shape agree with the claimed type | 2 | ✅ |
+| `structural_evidence` — does the ink support it | 2 | ✅ from `classification.measure` |
+| `model_confidence` — the baseline's own score | 2 | ✅ when the baseline ran |
+| `historical_reliability` — how often this detector was right | 1 | ❌ needs the feedback log |
+
+Three rules decide how they combine:
+
+**Missing is not zero.** A signal nobody could measure is `None` and takes no
+part in the average. Scoring it as 0 would punish a region for the pipeline's
+gaps rather than its own weakness — and four of the six are frequently
+unmeasurable today, so this is not a corner case. The signals turn on by
+themselves as data arrives, with no code change.
+
+**One contradiction outranks a good average.** Five agreeable signals and one
+saying 0.1 is not a 0.75 component; it is a component with something wrong with
+it. The average stays honest and the *decision* to review is taken separately —
+bending the number would make it both a worse ranking and a worse explanation.
+
+**It is a ranking, not a probability.** The weights are argued, not fitted.
+`Confidence.calibrated` is `False` everywhere until the Phase E corpus can say
+what a 0.90 is worth. So the primary control is **capacity** — `review_queue`
+returns the worst *N*, which a ranking can answer — rather than a threshold,
+which it cannot.
+
+`historical_reliability` is weighted lowest on purpose. A detector that has
+been right 90% of the time is not thereby right about *this* region, and a good
+track record carrying the score would hide exactly the cases worth catching.
+
+**Not yet wired in.** Nothing in the pipeline calls `assess()`, so the review
+screen is unchanged. That is backlog I25.
 
 ---
 
