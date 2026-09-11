@@ -39,6 +39,20 @@ class KnowledgeRegistry:
             
         logger.info(f"KnowledgeRegistry: Loaded {len(self.databases)} databases.")
 
+    #: Columns added to `ocr_knowledge_base` after it first shipped.
+    #: `create_all` creates missing *tables* and silently ignores missing
+    #: *columns*, so an existing knowledge file keeps its old shape and every
+    #: read of a new field fails at runtime instead of at startup.
+    #:
+    #: Additive only. Adding a nullable column cannot lose data; anything that
+    #: rewrites one needs a person deciding what the old values meant.
+    LATER_COLUMNS = {
+        "feature_version": "TEXT",
+        "extractor_name": "TEXT",
+        "source_document": "TEXT",
+        "source_page": "INTEGER",
+    }
+
     def add_database(self, db_path: str, is_default: bool = False):
         """Registers a database and indexes its hashes."""
         db_name = os.path.basename(db_path)
@@ -47,11 +61,28 @@ class KnowledgeRegistry:
 
         engine = create_engine(f"sqlite:///{db_path}")
         KnowledgeBase.metadata.create_all(bind=engine)
+        self._ensure_columns(engine)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         
         self.databases[db_name] = SessionLocal
         self._build_index_for_db(db_name)
         
+    def _ensure_columns(self, engine):
+        """Add any missing version column to an existing knowledge file."""
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(engine)
+        if not inspector.has_table("ocr_knowledge_base"):
+            return
+        existing = {c["name"] for c in inspector.get_columns("ocr_knowledge_base")}
+        for name, kind in self.LATER_COLUMNS.items():
+            if name in existing:
+                continue
+            with engine.begin() as connection:
+                connection.execute(text(
+                    f"ALTER TABLE ocr_knowledge_base ADD COLUMN {name} {kind}"))
+            logger.info("Added column ocr_knowledge_base.%s", name)
+
     def _build_index_for_db(self, db_name: str):
         """Indexes all hashes from a specific database."""
         Session = self.databases[db_name]

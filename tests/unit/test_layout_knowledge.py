@@ -22,6 +22,7 @@ from piply_opdf.core.types import BBox, ComponentType, DetectedComponent
 from piply_opdf.knowledge import (
     FEATURE_VERSION,
     LayoutAction,
+    LayoutFeatures,
     LayoutFeedback,
     LayoutKnowledgeStore,
     Provenance,
@@ -595,3 +596,198 @@ def test_learning_from_one_document_is_visible_to_the_next(store):
     assert len(carried) == 1
     assert carried[0].provenance.source_document == "first.pdf"
     assert carried[0].features.page_band == "top"
+
+
+# ── shape features (K3) ──────────────────────────────────────────────────────
+
+def _text_crop(scale: float = 1.0, words=("Patient Name", "Admission Date", "Provider")):
+    import cv2
+    import numpy as np
+
+    width, height = int(460 * scale), int(110 * scale)
+    crop = np.full((height, width, 3), 255, dtype=np.uint8)
+    for line, text in enumerate(words):
+        cv2.putText(crop, text, (int(12 * scale), int((32 + line * 34) * scale)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7 * scale, (20, 20, 20),
+                    max(1, int(2 * scale)))
+    return crop
+
+
+def test_a_perceptual_hash_survives_rescaling():
+    """The property the whole hash exists for. Without it, the same form
+    scanned at a different DPI would look like a different document."""
+    from piply_opdf.utils.hash import hash_distance, phash_array
+
+    base = phash_array(_text_crop(1.0))
+
+    for scale in (0.5, 2.0):
+        drift = hash_distance(base, phash_array(_text_crop(scale)))
+        assert drift <= 8, f"{drift} bits of 64 changed at scale {scale}"
+
+
+def test_a_perceptual_hash_reads_structure_not_words():
+    """Measured, and worth knowing before trusting it.
+
+    Two text blocks with entirely different words but the same three-line
+    arrangement land 6 bits apart — closer than the 8-bit threshold the text
+    knowledge base treats as a near match. A blank region lands 26 away. So
+    this says "laid out alike", not "the same region", and anything reading it
+    as identity would match the wrong thing confidently.
+    """
+    from piply_opdf.utils.hash import hash_distance, phash_array
+
+    words = phash_array(_text_crop(words=("Patient Name", "Admission Date", "Provider")))
+    other_words = phash_array(_text_crop(words=("Totally different", "words entirely", "here now")))
+    blank = phash_array(_text_crop(words=()))
+
+    assert hash_distance(words, other_words) < 8, "same layout, different words"
+    assert hash_distance(words, blank) > 16, "but structure still separates"
+
+
+def test_the_hash_is_the_expected_width():
+    """64 bits, 16 hex characters — short enough to index."""
+    from piply_opdf.utils.hash import phash_array
+
+    assert len(phash_array(_text_crop())) == 16
+
+
+def test_hu_moments_describe_ink_shape_not_content():
+    """Unlike a hash, these carry across documents: they say how the ink is
+    distributed, not what it says."""
+    import json
+
+    component = _component(ComponentType.HEADER, (0, 0, 460, 110))
+    features = describe(component, A4_300DPI, crop=_text_crop())
+
+    moments = json.loads(features.hu_moments)
+    assert len(moments) == 7
+    assert all(isinstance(v, float) for v in moments)
+
+
+def test_shape_features_are_absent_without_a_crop():
+    features = describe(_component(ComponentType.HEADER, (0, 0, 460, 110)), A4_300DPI)
+
+    assert features.region_phash is None
+    assert features.hu_moments is None
+
+
+def test_hog_is_not_stored_at_all():
+    """Measured, not assumed: 1,764 floats a region is what made the text
+    knowledge base 41 MB of HOG for 1,656 rows."""
+    assert not hasattr(LayoutFeatures, "hog_features")
+    assert "hog_features" not in {f for f in LayoutFeatures.__dataclass_fields__}
+
+
+def test_adding_shape_features_retired_the_old_records(store):
+    """Version 1 records have no hash and no moments, so a comparison using
+    them would read "absent" as "different"."""
+    features = describe(_component(ComponentType.HEADER, (100, 60, 2280, 140)), A4_300DPI)
+
+    store.remember(features, _provenance(feature_version="1"), source="human")
+    store.remember(features, _provenance(), source="human")
+
+    assert FEATURE_VERSION == "2"
+    assert len(store.candidates()) == 1
+    assert store.stats()["stale"] == 1
+
+
+# ── keeping it (K7) ──────────────────────────────────────────────────────────
+#
+# These files are the only things in the project that cannot be rebuilt, and
+# the working database has already been lost once.
+
+def _filled_store(path):
+    with LayoutKnowledgeStore(path) as store:
+        store.remember(
+            describe(_component(ComponentType.HEADER, (100, 60, 2280, 140)), A4_300DPI),
+            _provenance(), source="human")
+        store.record(LayoutFeedback(action=LayoutAction.CONFIRMED, document_id="d",
+                                    page_no=1, provenance=_provenance()))
+    return path
+
+
+def test_a_backup_is_read_back_before_it_is_called_one(tmp_path):
+    """A copy nobody has opened is a belief, not a backup."""
+    from piply_opdf.knowledge import backup_database
+
+    source = _filled_store(tmp_path / "layout.db")
+    result = backup_database(source, tmp_path / "backups")
+
+    assert result.target.exists()
+    assert result.tables["layout_knowledge"] == 1
+    assert result.tables["layout_feedback"] == 1
+
+
+def test_a_corrupt_backup_is_refused_not_reported_as_success(tmp_path):
+    """The failure this guards against is finding out at restore time."""
+    from piply_opdf.core.exceptions import KnowledgeBaseError
+    from piply_opdf.knowledge.backup import _verify
+
+    broken = tmp_path / "broken.db"
+    broken.write_bytes(b"this is not a database")
+
+    with pytest.raises(KnowledgeBaseError, match="could not be read"):
+        _verify(broken)
+
+
+def test_backing_up_something_that_is_not_there_is_an_error(tmp_path):
+    from piply_opdf.core.exceptions import KnowledgeBaseError
+    from piply_opdf.knowledge import backup_database
+
+    with pytest.raises(KnowledgeBaseError, match="nothing to back up"):
+        backup_database(tmp_path / "absent.db", tmp_path / "backups")
+
+
+def test_old_copies_are_pruned_but_only_after_the_new_one_verifies(tmp_path):
+    """Order matters: a failed backup must never be what deletes the last
+    good one."""
+    from datetime import timedelta
+
+    from piply_opdf.knowledge import backup_database
+    from piply_opdf.knowledge.provenance import utc_now
+
+    source = _filled_store(tmp_path / "layout.db")
+    start = utc_now()
+
+    for minute in range(5):
+        result = backup_database(source, tmp_path / "backups", keep=3,
+                                 stamp=start + timedelta(minutes=minute))
+
+    kept = sorted((tmp_path / "backups").glob("layout.*.db"))
+    assert len(kept) == 3
+    assert result.target in kept, "the newest survives"
+
+
+def test_both_knowledge_bases_are_backed_up_not_just_the_text_one(tmp_path):
+    """Layout knowledge is equally unrepeatable and equally a person's time."""
+    from piply_opdf.knowledge import backup_all
+
+    knowledge = tmp_path / "knowledge"
+    knowledge.mkdir()
+    _filled_store(knowledge / "piply_opdf_layout-001.db")
+    import sqlite3
+    with sqlite3.connect(knowledge / "piply_opdf_knowledge-001.db") as text_kb:
+        text_kb.execute("CREATE TABLE ocr_knowledge_base (id INTEGER PRIMARY KEY)")
+        text_kb.execute("INSERT INTO ocr_knowledge_base VALUES (1)")
+
+    results = backup_all(knowledge, tmp_path / "backups")
+
+    assert {r.source.name for r in results} == {
+        "piply_opdf_layout-001.db", "piply_opdf_knowledge-001.db",
+    }
+
+
+def test_restoring_refuses_to_overwrite_a_live_knowledge_base(tmp_path):
+    """Restoring is the moment to be boring."""
+    from piply_opdf.core.exceptions import KnowledgeBaseError
+    from piply_opdf.knowledge import backup_database, restore
+
+    source = _filled_store(tmp_path / "layout.db")
+    result = backup_database(source, tmp_path / "backups")
+
+    with pytest.raises(KnowledgeBaseError, match="Move it aside first"):
+        restore(result.target, source)
+
+    restored = restore(result.target, tmp_path / "recovered.db")
+    with LayoutKnowledgeStore(restored) as store:
+        assert len(store.candidates()) == 1

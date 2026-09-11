@@ -3,7 +3,7 @@
 Every test in the suite, what it protects, and what is **not** covered.
 
 *From `pytest --collect-only`, 2026-08-17.*
-**324 test functions · 539 cases · 539 passing, 0 failing.**
+**337 test functions · 552 cases · 552 passing, 0 failing.**
 
 Targets and measurement plan: [quality.md](quality.md).
 
@@ -32,7 +32,7 @@ encoded so they cannot recur.
 | Suite | Functions | Cases | Area |
 |-------|-----------|-------|------|
 | `test_header_footer_detectors.py` | 11 | 69 | Header/footer across sizes, DPIs, variants |
-| `test_layout_knowledge.py` | 48 | 48 | Describing regions, the store's two refusals, and the learning loop |
+| `test_layout_knowledge.py` | 61 | 61 | Describing regions, the store's refusals, the learning loop, and backups |
 | `test_confidence.py` | 53 | 53 | Evidence signals, weighting, and the review queue |
 | `test_classification.py` | 31 | 51 | Rules 0–3, residual sweep, size sanity |
 | `test_detector_parity.py` | 10 | 49 | Digital/scanned parity |
@@ -49,9 +49,9 @@ encoded so they cannot recur.
 | `test_phase2_enhance.py` | 13 | 15 | Enhancement operations |
 | `test_form_layouts.py` | 9 | 14 | Multi-column forms, table false positives |
 | `test_phase1_assess.py` | 12 | 12 | Quality assessment |
-| **Total** | **324** | **539** | |
+| **Total** | **337** | **552** | |
 
-All 539 pass. Run time is about 3 minutes — most of it rendering PDFs to
+All 552 pass. Run time is about 3 minutes — most of it rendering PDFs to
 images, which the tests do on purpose rather than committing fixtures.
 
 ---
@@ -209,7 +209,7 @@ enhancement applies only when the assessment flags it.
 
 ---
 
-## `test_layout_knowledge.py` — 48
+## `test_layout_knowledge.py` — 61
 
 Describing a region so it can be recognised somewhere else, and storing it so
 it stays interpretable.
@@ -247,8 +247,15 @@ it stays interpretable.
 | `test_a_deleted_region_teaches_the_detector_not_the_knowledge_base` | No region, nothing to learn a region from |
 | `test_a_detectors_record_becomes_measurable_once_people_review` | The signal that turns itself on, with no code change |
 | `test_learning_from_one_document_is_visible_to_the_next` | The compounding asset, in miniature |
+| `test_a_perceptual_hash_survives_rescaling` | 2-4 bits of 64 at 2x — the property the hash exists for |
+| `test_a_perceptual_hash_reads_structure_not_words` | **Measured**: different words, same layout, 6 bits apart |
+| `test_hog_is_not_stored_at_all` | 1,764 floats a region is what made the text KB 41 MB |
+| `test_a_backup_is_read_back_before_it_is_called_one` | A copy nobody opened is a belief |
+| `test_a_corrupt_backup_is_refused_not_reported_as_success` | Finding out at restore time is the failure |
+| `test_old_copies_are_pruned_but_only_after_the_new_one_verifies` | A failed backup must not delete the last good one |
+| `test_restoring_refuses_to_overwrite_a_live_knowledge_base` | Restoring is the moment to be boring |
 
-*(31 of 48 shown — the rest are the parametrised band cases and store filters.)*
+*(38 of 61 shown — the rest are the parametrised band cases and store filters.)*
 
 ---
 

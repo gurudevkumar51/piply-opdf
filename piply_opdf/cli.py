@@ -365,6 +365,40 @@ def cmd_layout_kb_import(
         )
 
 
+@layout_kb.command("backup")
+def cmd_knowledge_backup(
+    target: Annotated[Path, typer.Argument(help="Directory to write backups into")]
+        = Path("knowledge/backups"),
+    knowledge_dir: Annotated[Path, typer.Option("--from", help="Where the knowledge bases live")]
+        = Path("knowledge"),
+    keep: Annotated[int, typer.Option("--keep", help="How many copies of each to retain")] = 7,
+) -> None:
+    """Back up every knowledge base, and read each copy back to prove it worked.
+
+    These are the only files here that cannot be rebuilt. Everything else is
+    regenerable from the source documents.
+    """
+    from piply_opdf.core.exceptions import KnowledgeBaseError
+    from piply_opdf.knowledge import backup_all
+
+    try:
+        results = backup_all(knowledge_dir, target, keep=keep)
+    except KnowledgeBaseError as error:
+        err_console.print(str(error))
+        raise typer.Exit(1) from error
+
+    if not results:
+        err_console.print(f"No knowledge bases found in {knowledge_dir}")
+        raise typer.Exit(1)
+
+    table = Table("Database", "Backup", "Rows", "Pruned")
+    for result in results:
+        table.add_row(result.source.name, result.target.name,
+                      str(result.rows), str(len(result.removed)) or "0")
+    console.print(table)
+    console.print(f"[green]Verified[/green] {len(results)} backup(s) in [bold]{target}[/bold]")
+
+
 # `layout-kb match <page>` belongs here too, per the plan. It is not written
 # yet: matching a live page against stored knowledge is the LayoutPredictor,
 # which is Phase T. A command that printed a guess without one would be the

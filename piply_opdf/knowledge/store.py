@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS layout_knowledge (
     aligns_left_with  INTEGER, aligns_right_with INTEGER,
     ink_ratio         REAL, stroke_width_cv REAL, component_density REAL,
     baseline_scatter  REAL, colour_clusters INTEGER,
-    region_phash      TEXT, hog_features TEXT, hu_moments TEXT
+    region_phash      TEXT, hu_moments TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_layout_type_version
     ON layout_knowledge (component_type, feature_version);

@@ -119,13 +119,31 @@ class LayoutFeatures:
     baseline_scatter: float | None = None
     colour_clusters: int | None = None
 
-    # ── image hashes: columns exist, nothing fills them yet ─────────────────
-    #: Reserved for ``region_phash`` / HOG / Hu moments. They are declared here
-    #: and in the store's schema so adding them later is not a migration, but
-    #: **nothing populates them today** — see docs/backlog.md.
+    # ── shape, for recognising a region somewhere else ──────────────────────
+    #: Perceptual hash of the region's pixels — a **structural** signature,
+    #: not an identity.
+    #:
+    #: Measured rather than assumed: rescaling a region by 2x moves it 2-4 bits
+    #: of 64, and an empty region sits 26 bits away. But two text blocks with
+    #: *different words* and the same three-line layout sit only 6 bits apart,
+    #: because a DCT over the low frequencies sees the arrangement of light and
+    #: dark, not the letters.
+    #:
+    #: So it answers "is this laid out like that one?" and must not be read as
+    #: "is this the same region?". For identity, the text knowledge base hashes
+    #: a much smaller crop, where the letters *are* the low frequencies.
     region_phash: str | None = None
-    hog_features: str | None = None
+    #: Hu's seven moment invariants of the ink, log-scaled. Invariant to
+    #: position, scale and rotation, so unlike a hash they *do* carry across
+    #: documents: they describe how a region's ink is distributed rather than
+    #: what it says.
     hu_moments: str | None = None
+
+    # HOG is deliberately absent. It is 1,764 floats per region, and the text
+    # knowledge base shows what that costs when stored as JSON: 41 MB of its
+    # 44 MB is the `hog_features` column alone, about 26 KB a row for 1,656
+    # rows. A descriptor that large belongs in a training export, not in a
+    # store meant to be small enough to hand to somebody.
 
     @property
     def has_appearance(self) -> bool:
@@ -243,6 +261,8 @@ def _appearance(crop: Any | None) -> dict[str, Any]:
         "component_density": None,
         "baseline_scatter": None,
         "colour_clusters": None,
+        "region_phash": None,
+        "hu_moments": None,
     }
     if crop is None:
         return empty
@@ -259,7 +279,44 @@ def _appearance(crop: Any | None) -> dict[str, Any]:
         "component_density": _round(features.component_density),
         "baseline_scatter": _round(features.baseline_scatter),
         "colour_clusters": features.colour_clusters,
+        "region_phash": _region_phash(crop),
+        "hu_moments": _hu_moments(crop),
     }
+
+
+def _region_phash(crop: Any) -> str | None:
+    from piply_opdf.utils.hash import phash_array
+
+    try:
+        return phash_array(crop)
+    except Exception:            # an odd crop is not worth failing a page over
+        return None
+
+
+def _hu_moments(crop: Any) -> str | None:
+    """Hu's seven invariants, log-scaled.
+
+    Raw Hu moments span many orders of magnitude, so the sixth and seventh are
+    numerically invisible beside the first. The usual log transform, sign
+    preserved, puts them on a comparable scale — without it, any distance
+    between two records is decided entirely by ``h1``.
+    """
+    import cv2
+    import numpy as np
+
+    from piply_opdf.detectors.common import binarize, to_grayscale
+
+    try:
+        binary = binarize(to_grayscale(crop))
+        moments = cv2.HuMoments(cv2.moments(binary)).flatten()
+        scaled = [
+            0.0 if value == 0 else
+            float(-np.sign(value) * np.log10(abs(value)))
+            for value in moments
+        ]
+        return json.dumps([round(v, 4) for v in scaled])
+    except Exception:
+        return None
 
 
 # ── relationships ────────────────────────────────────────────────────────────

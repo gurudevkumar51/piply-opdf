@@ -9,7 +9,7 @@ approve one it moves here and gets an ID.
 For the scanned-PDF goal specifically — the stages, where each stands, and the
 challenges ranked — see [scanned-documents.md](scanned-documents.md).
 
-*Last updated: 2026-09-10 · 539 tests passing, 0 failing.*
+*Last updated: 2026-09-10 · 552 tests passing, 0 failing.*
 
 | Mark | Meaning |
 |------|---------|
@@ -57,11 +57,11 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | D | HTML reconstruction | 0 | 4 | 🟠 |
 | I | Template intelligence | 4 | 27 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
-| K | Knowledge architecture | 3 | 7 | 🟠 |
+| K | Knowledge architecture | 6 | 7 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **26** | **116** | **90 outstanding** |
+| | **Total** | **29** | **116** | **87 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -1127,11 +1127,11 @@ and nothing else.
 |----|------|--------|
 | K1 | Layout knowledge store, versioned | ✅ |
 | K2 | Human actions recorded by kind | ✅ |
-| K3 | Image-hash appearance features | ⬜ |
-| K4 | Versioning on the text knowledge base | ⬜ |
+| K3 | Image-hash appearance features | ✅ |
+| K4 | Versioning on the text knowledge base | ✅ |
 | K5 | Write layout knowledge from the review screen | ✅ |
 | K6 | Template knowledge store | ⬜ |
-| K7 | Back up the knowledge bases | ⬜ |
+| K7 | Back up the knowledge bases | ✅ |
 
 **K1 — Layout knowledge store** ✅
 `piply_opdf/knowledge/` — `layout.py` describes a region as ratios and
@@ -1149,19 +1149,45 @@ name it right. Collapsed into one counter, a detector that finds everything and
 names half of it wrong scores the same as one that names everything it finds
 correctly but misses half the page.
 
-**K3 — Image-hash appearance** ⬜
-`region_phash`, `hog_features` and `hu_moments` are columns in
-`layout_knowledge` and fields on `LayoutFeatures`, but **nothing fills them**.
-`modules/feature_extractor.py` computes all three already — it takes a file
-path rather than an array, so wiring it in means giving it an array-first entry
-point. Bumps `FEATURE_VERSION`, which retires every record written before it.
+**K3 — Image-hash appearance** ✅
+Two of the three, and the third dropped on measured grounds.
 
-**K4 — Versioning on the text knowledge base** ⬜
-`ocr_knowledge_base` has no version columns at all, so a row written by an
-older extractor is indistinguishable from a current one. This is exactly the
-failure `layout_knowledge` was built to avoid; the older store still has it.
-Adding nullable columns is cheap. Deciding what an unversioned existing row
-means is not — 1,656 of them predate the question.
+`region_phash` is written in NumPy — `utils.hash.phash_array`, a DCT and a
+median comparison, about twenty lines — rather than pulled from `imagehash`
+through a PIL conversion on every call. That also does half of E3.
+
+Measured, because the obvious claim about it is wrong: a 2x rescale moves the
+hash 2-4 bits of 64 and noise moves it 2, but **two text blocks with different
+words and the same three-line layout sit only 6 bits apart** — closer than the
+8-bit near-match threshold — while a blank region sits 26 away. On a large crop
+the letters are high-frequency detail the 8x8 corner discards. So it reads as
+"laid out alike", never "the same region", and the docstring says so.
+
+`hu_moments` are the seven invariants of the ink, log-scaled so the sixth and
+seventh are not swamped by the first. Unlike a hash these *do* carry across
+documents.
+
+**`hog_features` is deliberately not stored.** 1,764 floats a region, and the
+text knowledge base shows the cost: 41 MB of its 44 MB is that one column, at
+about 26 KB a row for 1,656 rows. A descriptor that large belongs in a training
+export, not in a store meant to be small enough to hand to somebody.
+
+`FEATURE_VERSION` is now `2`; version 1 records are retired, as intended.
+
+**K4 — Versioning on the text knowledge base** ✅
+`feature_version`, `extractor_name`, `source_document` and `source_page` added
+to `ocr_knowledge_base`, with an additive migration in `KnowledgeRegistry` —
+`create_all` creates missing tables and silently ignores missing columns, so an
+existing knowledge file would otherwise keep its old shape.
+
+All 1,656 existing rows read NULL, which is the honest answer: *unknown,
+written before versions were recorded*. Backfilling a guess would have been
+worse than the gap.
+
+**Exact pHash lookup is unaffected**, which is why this was safe to add late. A
+hash of a crop does not depend on which extractor ran. What the version
+protects is everything derived from it — the feature vectors, and any
+similarity computed from them.
 
 **K5 — Write from the review screen** ✅
 `POST /layout-feedback/{component_id}` with `confirmed`, `corrected` or
@@ -1197,9 +1223,24 @@ The third store: "what does a page of this family look like?" Phase T in
 [plan-templates.md](plan-templates.md). Fingerprints carry the same version
 block, and matching refuses across versions for the same reason.
 
-**K7 — Backups** ⬜
-The knowledge bases are the compounding asset and cannot be regenerated. The
-working database has already lost data once. Nothing backs any of them up.
+**K7 — Backups** ✅
+`piply-opdf layout-kb backup`, and `piply_opdf.knowledge.backup_all`. Both
+stores, not just the text one.
+
+Two things it does that copying the file does not. It uses **SQLite's own
+backup API**, which copies under a read lock — `shutil.copy` on a live database
+can catch a page mid-write and produce a file that opens fine and is subtly
+wrong. And it **reads every copy back**, integrity-checks it and counts the
+rows before reporting success, because a backup nobody has opened is a belief
+rather than a backup.
+
+Pruning happens only *after* the new copy verifies, so a failed backup can
+never be what deletes the last good one. `restore` refuses to overwrite a live
+knowledge base.
+
+Found by its own test: `with sqlite3.connect(...)` commits but does **not**
+close, so on Windows the file stayed locked and pruning failed with "used by
+another process".
 
 ---
 

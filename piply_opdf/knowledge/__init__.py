@@ -21,6 +21,7 @@ confirmed.
 """
 
 from .actions import DetectorScore, LayoutAction, LayoutFeedback, counts_by_action, tally
+from .backup import BackupResult, backup_all, backup_database, restore
 from .layout import LayoutFeatures, describe, describe_page, page_band
 from .provenance import FEATURE_VERSION, Provenance
 from .registry import KnowledgeRegistry
@@ -45,4 +46,9 @@ __all__ = [
     "tally",
     "counts_by_action",
     "TRUSTED_SOURCES",
+    # keeping it
+    "backup_all",
+    "backup_database",
+    "restore",
+    "BackupResult",
 ]

@@ -35,6 +35,7 @@ Verified against `piply_opdf/cli.py`. Commands not listed here do not exist.
 | `piply-opdf layout-kb stats` | What the layout knowledge base holds |
 | `piply-opdf layout-kb export <file>` | Write records and action log to JSON |
 | `piply-opdf layout-kb import <file>` | Read a knowledge file into the store |
+| `piply-opdf layout-kb backup [dir]` | Copy **both** knowledge bases and read each copy back |
 | `piply-opdf version` | Version |
 
 Global options: `--config <yaml>`, `--work-dir <path>`, `--help`.
@@ -93,6 +94,17 @@ Scores from `tally()` describe **the review queue, not the page**. A real
 accuracy figure needs the gold corpus.
 
 Schema: [database.md](database.md).
+
+### Keeping it
+
+```bash
+piply-opdf layout-kb backup knowledge/backups --keep 7
+```
+
+The knowledge bases are the only files here that cannot be rebuilt. This uses
+SQLite's own backup API rather than a file copy — a copy of a live database can
+catch a page mid-write — and reads every copy back before reporting success.
+Older copies are pruned only *after* the new one verifies.
 
 ### Teaching it from the review screen
 

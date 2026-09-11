@@ -32,12 +32,9 @@ projects and machines.
   memory and are lost at the database boundary. Backlog B5.
 - `component_type` in the text knowledge DB is NULL for 1,549 of 1,647 rows,
   which blocks per-type model training. Backlog G1.
-- `layout_knowledge` declares `region_phash`, `hog_features` and `hu_moments`
-  but **nothing populates them yet** — the columns exist so adding them is not
-  a migration. Backlog K3.
-- `ocr_knowledge_base` has **no version columns**. A row written by an older
-  feature extractor is indistinguishable from a current one, which is the
-  problem `layout_knowledge` was built not to have. Backlog K4.
+- `ocr_knowledge_base`'s version columns are **NULL for all 1,656 existing
+  rows** — they predate versioning, and "unknown" is the honest value. New rows
+  carry a version. Exact pHash lookup is unaffected either way.
 
 ---
 
@@ -118,7 +115,8 @@ One row per verified image hash. The portable asset.
 | `dhash`, `ahash` | String | Additional hashes |
 | `width`, `height`, `aspect_ratio` | Int/Float | Geometry |
 | `edge_density`, `stroke_density`, `connected_components` | Float/Int | Texture |
-| `histogram_features`, `projection_profiles`, `hu_moments`, `hog_features` | Text (JSON) | Feature vectors for ML |
+| `histogram_features`, `projection_profiles`, `hu_moments`, `hog_features` | Text (JSON) | Feature vectors for ML. `hog_features` alone is 41 MB of this file's 44 MB |
+| `feature_version`, `extractor_name`, `source_document`, `source_page` | String/Int | Added late; **NULL for all 1,656 existing rows**, meaning "written before versions were recorded" |
 
 ## `ocr_cluster` (view)
 
@@ -192,7 +190,8 @@ always measured the same way.
 |--------|------|-------------|
 | `ink_ratio`, `stroke_width_cv`, `component_density`, `baseline_scatter` | Float | Nullable |
 | `colour_clusters` | Integer | Nullable |
-| `region_phash`, `hog_features`, `hu_moments` | Text | **Declared, not yet populated** |
+| `region_phash` | Text | Perceptual hash — a **structural** signature. Two text blocks with different words and the same layout sit 6 bits apart, so read it as "laid out alike", never "the same region" |
+| `hu_moments` | Text (JSON) | Seven moment invariants of the ink, log-scaled. These *do* carry across documents |
 
 All of these are `NULL` when the record was described from geometry alone —
 absent is stored as absent, not as zero, because "no ink" and "nobody measured

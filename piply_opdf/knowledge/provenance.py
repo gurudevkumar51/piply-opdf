@@ -38,7 +38,10 @@ __all__ = ["FEATURE_VERSION", "Provenance", "utc_now"]
 #: History:
 #:   ``1`` — geometry, relationships, and the appearance signals from
 #:           ``classification.measure``.
-FEATURE_VERSION = "1"
+#:   ``2`` — adds ``region_phash`` and ``hu_moments``. A record written under
+#:           version 1 has neither, so a comparison using them would silently
+#:           treat "absent" as "different".
+FEATURE_VERSION = "2"
 
 
 def utc_now() -> datetime:

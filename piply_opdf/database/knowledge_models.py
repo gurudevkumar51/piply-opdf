@@ -55,3 +55,23 @@ class OCRKnowledgeEntry(KnowledgeBase):
     projection_profiles = Column(Text)
     hu_moments = Column(Text)
     hog_features = Column(Text)
+
+    # ── Versioning ───────────────────────────────────────────────────────────
+    #
+    # Added late, and the lateness is the point. Without these, a row written
+    # by an older feature extractor is indistinguishable from a current one,
+    # so the feature columns above silently mean different things in different
+    # rows and any model trained across them learns the mixture.
+    #
+    # Nullable, because 1,656 rows predate the question. NULL here reads as
+    # "unknown, written before versions were recorded" — which is a fact worth
+    # keeping, not a gap to backfill with a guess.
+    #
+    # **Exact pHash lookup is unaffected.** A hash of a crop is a hash of a
+    # crop; it does not depend on which extractor version ran. What the version
+    # protects is everything derived — the feature vectors, and any similarity
+    # computed from them.
+    feature_version = Column(String, index=True)
+    extractor_name = Column(String)
+    source_document = Column(String)
+    source_page = Column(Integer)
