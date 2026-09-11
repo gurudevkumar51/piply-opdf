@@ -2,10 +2,55 @@ import fitz
 from typing import List, Tuple
 from piply_opdf.models.grid import BorderlessTableModel, GridBoundingBox
 
+
+def structure_from_blocks(blocks, *, table_id: str, page: int, bbox):
+    """Rows and columns for one table region, from `piply_opdf.structure`.
+
+    The entry point for **any** source of boxes. The text-layer path below
+    calls it; an OCR path can call it with the boxes an engine returned,
+    because the structure engine takes boxes rather than a text layer.
+
+    That distinction is the reason the two are separate. A structure
+    recogniser that needs a text layer only works on documents where the
+    problem is already solved — and the documents this targets are scans.
+    """
+    from piply_opdf.structure import build_grid
+
+    grid = build_grid(list(blocks))
+    if not grid.rows or not grid.columns:
+        return None
+
+    x0, y0, width, height = bbox
+    columns = [(c.x0, y0, c.width, height) for c in grid.columns]
+    rows = [(x0, r.bbox.y, width, r.bbox.height) for r in grid.rows]
+
+    return BorderlessTableModel(
+        id=table_id,
+        page=page,
+        bbox=tuple(int(v) for v in bbox),
+        columns=[tuple(int(v) for v in c) for c in columns],
+        rows=[tuple(int(v) for v in r) for r in rows],
+        confidence=0.85,
+        row_confidence=[r.confidence for r in grid.rows],
+        metadata={
+            "structure": grid.summary(),
+            "wrapped_rows": sum(1 for r in grid.rows if r.wrapped),
+            "row_evidence": [r.evidence for r in grid.rows],
+        },
+    )
+
+
 class BorderlessTableDetector:
     """
-    Detects borderless tables by extracting PyMuPDF word coordinates and 
-    clustering them into rows and columns based on alignment.
+    Finds borderless table *regions*, then hands each one to the structure
+    engine to be turned into rows and columns.
+
+    The split matters. Locating a region can be done crudely — consecutive
+    lines that look tabular — but deciding where one row ends is the part that
+    goes wrong on real documents, and it is the part `piply_opdf.structure`
+    exists for. A description wrapping onto three lines is one row; clustering
+    by vertical whitespace calls it three, and every column after it is then
+    read against the wrong row.
     """
     def __init__(self):
         # We output coordinates in 300 DPI to match the rest of the pipeline
@@ -249,37 +294,40 @@ class BorderlessTableDetector:
                     y1 - y0
                 ))
             
-            table_rows_extracted = []
-            for r_idx in range(len(t)):
-                tr = t[r_idx]
-                
-                if r_idx == 0:
-                    r_y0 = int(max(0, tr['y0'] - 2))
-                else:
-                    prev_y1 = t[r_idx - 1]['y1']
-                    if prev_y1 >= tr['y0']:
-                        r_y0 = int(tr['y0'])
-                    else:
-                        r_y0 = int((prev_y1 + tr['y0']) / 2)
-                        
-                if r_idx == len(t) - 1:
-                    r_y1 = int(tr['y1'] + 2)
-                else:
-                    next_y0 = t[r_idx + 1]['y0']
-                    if tr['y1'] >= next_y0:
-                        r_y1 = int(tr['y1'])
-                    else:
-                        r_y1 = int((tr['y1'] + next_y0) / 2)
-                        
-                table_rows_extracted.append((x0, r_y0, x1 - x0, r_y1 - r_y0))
-                
-            results.append(BorderlessTableModel(
-                id=f"borderless_table_{i+1:03d}",
+            # The region is located; the structure engine decides its rows.
+            #
+            # Everything above this point is region-finding, and it is allowed
+            # to be crude. What it must not do is decide rows, because its
+            # notion of a row is "a cluster of similar y values" — which turns
+            # a wrapped description into three rows and misaligns every column
+            # after it. That is the failure `piply_opdf.structure` was written
+            # to prevent, so the answer comes from there.
+            from piply_opdf.structure import TextBlock
+            from piply_opdf.core.types import BBox
+
+            region_blocks = [
+                TextBlock(BBox(int(b[0]), int(b[1]),
+                               int(b[2] - b[0]), int(b[3] - b[1])), b[4])
+                for b in boxes
+                if y0 <= (b[1] + b[3]) / 2 <= y1 and x0 <= (b[0] + b[2]) / 2 <= x1
+            ]
+
+            structured = structure_from_blocks(
+                region_blocks,
+                table_id=f"borderless_table_{i+1:03d}",
                 page=page_num,
                 bbox=(x0, y0, x1 - x0, y1 - y0),
-                columns=padded_cols,
-                rows=table_rows_extracted,
-                confidence=0.85
-            ))
-            
+            )
+            if structured is None:
+                continue
+
+            # The padded column bands are kept: they exist to stop a crop
+            # slicing through text at the edges, which is a rendering concern
+            # rather than a structural one, and the structure engine's bands
+            # hug the ink exactly.
+            if len(padded_cols) == len(structured.columns):
+                structured.columns = [tuple(int(v) for v in c) for c in padded_cols]
+
+            results.append(structured)
+
         return results

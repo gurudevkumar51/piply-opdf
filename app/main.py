@@ -643,9 +643,41 @@ def record_layout_decision(
 
 @app.get("/layout-knowledge/stats")
 def layout_knowledge_stats():
-    """What the layout knowledge base holds, and how much of it is usable."""
+    """What the layout knowledge base holds, and how much of it is usable.
+
+    ``stale`` is reported apart from ``usable`` on purpose: records written by
+    an older feature extractor are kept but never matched against, and a store
+    that looks full while answering nothing is the confusing failure worth
+    making visible.
+    """
     with _layout_store() as store:
         return store.stats()
+
+
+@app.post("/layout-knowledge/backup")
+def layout_knowledge_backup():
+    """Copy every knowledge base, and read each copy back before saying so.
+
+    These are the only files here that cannot be rebuilt: delete the working
+    database and you reprocess, delete a knowledge base and the human decisions
+    inside it are gone. A backup nobody has opened is a belief, so each copy is
+    integrity-checked and counted before this returns.
+    """
+    from piply_opdf.core.exceptions import KnowledgeBaseError
+    from piply_opdf.knowledge import backup_all
+
+    try:
+        results = backup_all("knowledge", os.path.join("knowledge", "backups"))
+    except KnowledgeBaseError as error:
+        raise HTTPException(500, str(error)) from error
+
+    return {
+        "results": [
+            {"source": r.source.name, "backup": r.target.name,
+             "rows": r.rows, "pruned": len(r.removed)}
+            for r in results
+        ]
+    }
 
 
 def replace_type(features, component_type: str):

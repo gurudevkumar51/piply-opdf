@@ -121,3 +121,9 @@ class BorderlessTableModel(BaseModel):
     rows: List[Tuple[int, int, int, int]] = Field(default_factory=list)
     cells: List[Any] = Field(default_factory=list)
     confidence: float = 1.0
+    #: How strongly each row boundary is a boundary, in row order, from
+    #: `piply_opdf.structure`. A wrapped description folded back into its row
+    #: leaves fewer, better-evidenced rows than the line count suggests, and a
+    #: low value here is a split worth a person's glance.
+    row_confidence: List[float] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)

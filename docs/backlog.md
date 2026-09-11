@@ -723,7 +723,7 @@ reused, by hash. Reusing the **entire layout** is a much larger win.
 | I22 | Confidence as a calibrated evidence score | 🔨 |
 | I23 | Never silently trust: evidence, source and review status on every component | ⬜ |
 | I24 | Borderless tables rebuilt around continuation analysis | 🔨 |
-| I28 | Feed the structure engine from the detector and from OCR boxes | ⬜ |
+| I28 | Feed the structure engine from the detector and from OCR boxes | 🔨 |
 | I25 | Wire the evidence score into the pipeline and the review screen | ✅ |
 | I26 | Score table cells, rows and columns from evidence too | ✅ |
 | I27 | The classifier over-calls handwriting on cell-sized crops | ⬜ |
@@ -1049,20 +1049,37 @@ Three corrections found by running it, each now a test:
   second, because its predecessor was the first wrap and they share a left
   edge.
 
-**I28** ⬜ Nothing feeds it yet. Two ends:
+**I28** 🔨 The text-layer end is wired.
 
-* `BorderlessTableDetector` still clusters by Y-centre with fixed pixel
-  thresholds (15, 30, 40), which is both the wrapped-row bug and a violation
-  of the scale-free rule. It should hand its region's blocks to
-  `build_grid`.
-* On a scan there is no text layer, so the blocks must come from OCR. The
-  engine already takes boxes rather than a text layer, which is why it can
-  serve both — but the wiring does not exist. `Sbizhub_C2219080509040.pdf`
-  yields nothing today for exactly this reason.
+`BorderlessTableDetector` now finds the *region* — which is allowed to be
+crude — and hands that region's blocks to the structure engine, which decides
+its rows. The split is the point: locating a table is easy, deciding where one
+row ends is what goes wrong, and the old code's answer was "a cluster of
+similar y values".
 
-Also needed: **scope the region**. Run on a whole invoice page the engine finds
-columns in the delivery address, because that is what it was asked —
-`OD330106520353075100.pdf` gives 33 rows by 6 columns from the full page.
+Measured on real documents:
+
+| Document | Result |
+|---|---|
+| `OD330106520353075100.pdf` | 2 tables; the second folds a wrapped row — 8 physical lines into 7 |
+| `ChallanReceipt.pdf` | 2 tables, 18 x 3 and 8 x 3 |
+| `Settlement^02559467.pdf` | 1 table, 28 x 3 |
+
+Row confidence and the evidence behind each boundary are carried on
+`BorderlessTableModel.row_confidence` and `.metadata`, so a doubtful split
+reaches review like any other evidence.
+
+**Honest about what it does not fix.** On that invoice the product description
+runs over four lines, and only the last was folded. The other two carry an
+identifier in the first column as well as description text in the second, so
+they fill two columns and read as rows. They score 0.65 — doubtful, and
+surfaced as such — but a person would call all four one row. Multi-column
+continuations need more than spread, and that is not solved.
+
+**Still open: the OCR end.** On a scan there is no text layer, so the blocks
+must come from OCR. `structure_from_blocks` is the entry point and takes boxes
+rather than a text layer for exactly this reason, but nothing calls it with OCR
+output. `Sbizhub_C2219080509040.pdf` still yields nothing.
 
 **I24 (original note)** "Columns → rows → cells" fails on the documents this targets: a
 wrapped description looks like new rows, so every column after it misaligns.

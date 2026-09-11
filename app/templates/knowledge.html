@@ -8,6 +8,43 @@
 
 {% block body %}
 <main class="flex-1 p-6 max-w-7xl mx-auto w-full">
+
+    <!-- Layout knowledge. A second store answering a different question from
+         the text one: not "what does this say" but "what kind of region is
+         this". Only human decisions enter it. -->
+    <div class="panel mb-6">
+        <div class="panel-head">
+            <div class="flex items-center gap-3">
+                <h2 class="panel-title">Layout Knowledge</h2>
+                <span class="badge badge-accent num" id="lk-usable">0 usable</span>
+                <span class="badge num hidden" id="lk-stale">0 stale</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="backupKnowledge()" class="btn btn-sm"
+                        title="Copy both knowledge bases and read each copy back. These are the only files here that cannot be rebuilt.">
+                    Back up
+                </button>
+                <button onclick="loadLayoutKnowledge()" class="btn btn-sm">Refresh</button>
+            </div>
+        </div>
+
+        <div class="p-4 grid" style="grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+            <div>
+                <span class="label-micro">Confirmed regions, by type</span>
+                <div id="lk-types" class="mt-2 text-sm text-muted-2">Nothing confirmed yet.</div>
+            </div>
+            <div>
+                <span class="label-micro">How each detector is doing</span>
+                <div id="lk-detectors" class="mt-2 text-sm text-muted-2">
+                    No review history yet.
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-foot">
+            <span id="lk-note" class="label-micro"></span>
+        </div>
+    </div>
     <div class="panel">
 
         <div class="panel-head">
@@ -330,6 +367,100 @@
         if (el) el.classList.toggle('hidden');
     }
 
+
+    // ── Layout knowledge ─────────────────────────────────────────────────
+    //
+    // The second store. It answers "what kind of region is this", fills only
+    // from human decisions, and — unlike the text base — refuses to compare
+    // records written by different feature extractor versions. That last part
+    // is why "stale" is shown separately: a store that looks full but answers
+    // nothing is the confusing failure worth preventing.
+
+    async function loadLayoutKnowledge() {
+        try {
+            const stats = await fetch('/layout-knowledge/stats').then(r => r.json());
+
+            document.getElementById('lk-usable').textContent = `${stats.usable} usable`;
+
+            const staleBadge = document.getElementById('lk-stale');
+            staleBadge.textContent = `${stats.stale} stale`;
+            staleBadge.classList.toggle('hidden', !stats.stale);
+            staleBadge.title = stats.stale
+                ? `Written by an older feature extractor (current is version `
+                  + `${stats.current_feature_version}). Kept, but not used for matching — `
+                  + `features built differently are not comparable.`
+                : '';
+
+            const types = Object.entries(stats.by_type || {});
+            document.getElementById('lk-types').innerHTML = types.length
+                ? types.sort((a, b) => b[1] - a[1])
+                       .map(([name, n]) => `<div class="flex justify-between py-0.5">
+                            <span>${escapeHtml(name)}</span><span class="num">${n}</span></div>`).join('')
+                : 'Nothing confirmed yet — confirm a region on the dashboard to teach it.';
+
+            renderDetectorScores(stats.feedback || {});
+
+            // The confusing case the store's `stats` exists to surface: records
+            // are there, the type list is populated, and none of them can be
+            // used. Saying so beats letting somebody read the list as live.
+            if (stats.total && !stats.usable) {
+                document.getElementById('lk-note').textContent =
+                    `All ${stats.total} record(s) were written by an older feature `
+                    + `extractor (current is version ${stats.current_feature_version}). `
+                    + `They are kept but not matched against — confirm those regions `
+                    + `again to teach them under the current one.`;
+                return;
+            }
+
+            const actions = Object.values(stats.feedback || {}).reduce((a, b) => a + b, 0);
+            document.getElementById('lk-note').textContent = actions
+                ? `${actions} human decision(s) recorded. Only confirmed and corrected `
+                  + `regions become knowledge; a deleted one is recorded against the detector.`
+                : "Only human decisions become knowledge. A detector's answer is a proposal.";
+        } catch (e) {
+            document.getElementById('lk-note').textContent =
+                `Could not read the layout knowledge base: ${e.message}`;
+        }
+    }
+
+    /** What the action log says about each detector, kept apart by kind. */
+    async function renderDetectorScores(feedback) {
+        const box = document.getElementById('lk-detectors');
+        const total = Object.values(feedback).reduce((a, b) => a + b, 0);
+        if (!total) {
+            box.textContent = 'No review history yet. Confirming and correcting regions '
+                            + 'is what makes a detector measurable.';
+            return;
+        }
+        box.innerHTML = Object.entries(feedback)
+            .filter(([, n]) => n)
+            .map(([action, n]) => `<div class="flex justify-between py-0.5">
+                 <span>${escapeHtml(action)}</span><span class="num">${n}</span></div>`)
+            .join('')
+            + `<div class="text-xs text-muted-2 mt-2">
+                 Corrected counts against a detector's type accuracy, deleted against its
+                 precision, added against its recall. These describe the review queue,
+                 not the page — a real accuracy figure needs a labelled corpus.
+               </div>`;
+    }
+
+    async function backupKnowledge() {
+        const note = document.getElementById('lk-note');
+        note.textContent = 'Backing up…';
+        try {
+            const res = await fetch('/layout-knowledge/backup', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) { note.textContent = data.detail || 'Backup failed.'; return; }
+            note.textContent = data.results.length
+                ? `Backed up and verified: ` + data.results.map(
+                      r => `${r.source} (${r.rows} rows)`).join(', ')
+                : 'No knowledge bases found to back up.';
+        } catch (e) {
+            note.textContent = `Backup failed: ${e.message}`;
+        }
+    }
+
+    loadLayoutKnowledge();
     loadKnowledgeBase();
 </script>
 {% endblock %}

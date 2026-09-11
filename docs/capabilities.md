@@ -122,7 +122,8 @@ never resolved silently. Off by default: it costs several seconds a page.
 - Assemble the rows and cells of a **borderless table**, folding a wrapped
   description back into the row it belongs to rather than reporting it as
   extra rows — the failure that makes a statement claim payments happened on
-  dates they did not *(the engine; it is not wired into the pipeline yet)*
+  dates they did not — wired into the text-layer detector, with row confidence
+  and the evidence behind each boundary carried through to review
 - A review queue ordered worst-first, cut by **how much time a person has**
   rather than by a threshold the score cannot yet justify — on `sample.pdf`
   this turns "167 need a look" into "the worst 25", with the full count kept
@@ -145,7 +146,8 @@ never resolved silently. Off by default: it costs several seconds a page.
 
 | Gap | Consequence | Backlog |
 |-----|-------------|---------|
-| **Borderless table *structure*** | The engine that builds rows and cells exists and handles wrapped descriptions correctly, but nothing feeds it — the detector still clusters by Y-centre, and on a scan the blocks would have to come from OCR | I24, I28 |
+| **Borderless tables on scans** | The structure engine is wired to the text-layer detector, but nothing feeds it OCR boxes, so a scanned statement still yields nothing | I28 |
+| **Multi-column continuations** | A description line that also carries an identifier in the first column reads as a new row. Scored doubtful rather than wrong, but not folded | I28 |
 | **Which way up a sideways page goes** | Detected and flagged, but the quarter turn needs a person | I17 |
 | **Page column detection** | A two-column article is processed as single-column | B3 |
 | **Reading order** | The manifest is an unordered set of boxes | B3 |

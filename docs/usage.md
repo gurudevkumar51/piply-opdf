@@ -157,6 +157,15 @@ for row in grid.rows:
     print([grid.cell(row.index, c.index).text for c in grid.columns])
 ```
 
+`BorderlessTableDetector` already does this for documents with a text layer:
+it finds the region, then hands that region's blocks here. Row confidence and
+the evidence behind each boundary come back on
+`BorderlessTableModel.row_confidence` and `.metadata`.
+
+For a scan, call `structure_from_blocks` with boxes from OCR — the engine takes
+boxes rather than a text layer for exactly that reason, though nothing wires it
+up yet (I28).
+
 **Give it one table's blocks, not a whole page** — run on a whole invoice it
 will find columns in the delivery address, because that is what it was asked.
 
