@@ -581,6 +581,14 @@ fields such as amounts and identifiers.
 
 ## Phase R — Borderless tables, rebuilt around continuation
 
+**🔨 The engine is built** (`piply_opdf/structure/`, 18 tests); nothing feeds
+it yet. On the statement described below — a description wrapping onto three
+lines, a closing-balance row with no date — it returns 4 rows by 3 columns with
+the wrap folded in and the total row kept, identically at half and double
+resolution. What is missing is the wiring: the detector still uses its old
+Y-centre clustering, and on a scan the blocks would have to come from OCR.
+See I24 and I28 in [backlog.md](backlog.md).
+
 The single biggest structural gap for the documents this system targets. A bank
 statement, a remittance advice, an invoice — few or no ruled lines, and the
 whole value is in the relationship between columns.
@@ -1023,7 +1031,7 @@ those labels exist, precision and recall are unmeasured, not merely low.
 | 4 | B — baseline model + fusion | ✅ done |
 | 5 | K — knowledge architecture | 🔨 layout store built and filling; templates are Phase T |
 | 6 | C — confidence as an evidence score | 🔨 built and wired; calibration waits on 2 |
-| 7 | R — borderless tables | ⬜ |
+| 7 | R — borderless tables | 🔨 engine built; feeding it is I28 |
 | 8 | E — re-measure | ⬜ waiting on 2 |
 | 9 | N — nested layouts | ⬜ |
 | 10 | T — fingerprint + verifier | 🔨 LayoutPredictor built; fingerprints and verifier open |

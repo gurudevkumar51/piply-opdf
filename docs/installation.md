@@ -61,7 +61,7 @@ python -c "import piply_opdf; print(piply_opdf.__version__)"
 pytest tests/unit -v
 ```
 
-567 tests. See [testing.md](testing.md).
+585 tests. See [testing.md](testing.md).
 
 ## Configuration
 

@@ -3,7 +3,7 @@
 Every test in the suite, what it protects, and what is **not** covered.
 
 *From `pytest --collect-only`, 2026-08-17.*
-**352 test functions · 567 cases · 567 passing, 0 failing.**
+**368 test functions · 585 cases · 585 passing, 0 failing.**
 
 Targets and measurement plan: [quality.md](quality.md).
 
@@ -34,6 +34,7 @@ encoded so they cannot recur.
 | `test_header_footer_detectors.py` | 11 | 69 | Header/footer across sizes, DPIs, variants |
 | `test_layout_knowledge.py` | 61 | 61 | Describing regions, the store's refusals, the learning loop, and backups |
 | `test_predictor.py` | 13 | 13 | Matching a region against what people confirmed |
+| `test_borderless_structure.py` | 18 | 18 | Rows, columns and continuation on unruled tables |
 | `test_confidence.py` | 55 | 55 | Evidence signals, weighting, and the review queue |
 | `test_classification.py` | 31 | 51 | Rules 0–3, residual sweep, size sanity |
 | `test_detector_parity.py` | 10 | 49 | Digital/scanned parity |
@@ -50,9 +51,9 @@ encoded so they cannot recur.
 | `test_phase2_enhance.py` | 13 | 15 | Enhancement operations |
 | `test_form_layouts.py` | 9 | 14 | Multi-column forms, table false positives |
 | `test_phase1_assess.py` | 12 | 12 | Quality assessment |
-| **Total** | **352** | **567** | |
+| **Total** | **368** | **585** | |
 
-All 567 pass. Run time is about 3 minutes — most of it rendering PDFs to
+All 585 pass. Run time is about 3 minutes — most of it rendering PDFs to
 images, which the tests do on purpose rather than committing fixtures.
 
 ---
@@ -321,6 +322,29 @@ seen, and it must not announce a match that is wrong.
 | `test_a_match_reports_which_groups_agreed` | A score nobody can take apart gets believed or ignored |
 | `test_it_searches_every_type_not_just_the_claimed_one` | Filtering by the claim would hide the wrong claims |
 | `test_a_group_neither_record_has_is_skipped_not_scored_zero` | Missing is not zero, here too |
+
+---
+
+## `test_borderless_structure.py` — 18
+
+The failure being prevented is specific: clustering text by horizontal
+whitespace turns a wrapped description into extra rows, and every column after
+it is then read against the wrong row.
+
+| Test | Protects |
+|------|----------|
+| `test_a_wrapped_description_does_not_become_extra_rows` | **The whole point** — three physical lines, one logical row |
+| `test_values_stay_with_the_row_they_belong_to` | The consequence: a statement claiming payments on dates they did not happen |
+| `test_a_row_with_no_value_in_the_first_column_is_still_a_row` | No column is the mandatory anchor |
+| `test_a_row_with_a_value_only_in_the_last_column_is_still_a_row` | Same rule, from the other end |
+| `test_empty_cells_are_kept_rather_than_skipped` | Dropping them shifts every later value into the wrong column |
+| `test_the_same_table_at_any_resolution_gives_the_same_structure` | Every threshold in text-heights, not pixels |
+| `test_a_band_holding_no_text_is_not_reported_as_a_column` | A rounding sliver is not a column |
+| `test_a_column_runs_to_where_the_next_one_starts` | Ragged right margins are clear on most lines too |
+| `test_prose_is_one_column_not_a_one_column_table` | Otherwise every paragraph becomes a table |
+| `test_one_lucky_gap_does_not_make_a_column` | One short line is a coincidence; twenty is a column |
+| `test_lines_are_clustered_on_baselines_not_centres` | Tall and short words share a baseline, not a centre |
+| `test_the_spread_signal_names_no_particular_column` | The anchor-free rule, asserted directly |
 
 ---
 

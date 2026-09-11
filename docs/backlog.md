@@ -9,7 +9,7 @@ approve one it moves here and gets an ID.
 For the scanned-PDF goal specifically — the stages, where each stands, and the
 challenges ranked — see [scanned-documents.md](scanned-documents.md).
 
-*Last updated: 2026-09-10 · 567 tests passing, 0 failing.*
+*Last updated: 2026-09-10 · 585 tests passing, 0 failing.*
 
 | Mark | Meaning |
 |------|---------|
@@ -55,13 +55,13 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | A | Foundation for scanned input | 1 | 4 | 🟠 |
 | C | Operator workbench (UI) | 0 | 19 | 🟠 |
 | D | HTML reconstruction | 0 | 4 | 🟠 |
-| I | Template intelligence | 4 | 27 | 🟠 |
+| I | Template intelligence | 4 | 28 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
 | K | Knowledge architecture | 7 | 8 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **30** | **117** | **87 outstanding** |
+| | **Total** | **30** | **118** | **88 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -722,7 +722,8 @@ reused, by hash. Reusing the **entire layout** is a much larger win.
 | I21 | Third image: structural reference (orientation + deskew only) | ✅ |
 | I22 | Confidence as a calibrated evidence score | 🔨 |
 | I23 | Never silently trust: evidence, source and review status on every component | ⬜ |
-| I24 | Borderless tables rebuilt around continuation analysis | ⬜ |
+| I24 | Borderless tables rebuilt around continuation analysis | 🔨 |
+| I28 | Feed the structure engine from the detector and from OCR boxes | ⬜ |
 | I25 | Wire the evidence score into the pipeline and the review screen | ✅ |
 | I26 | Score table cells, rows and columns from evidence too | ✅ |
 | I27 | The classifier over-calls handwriting on cell-sized crops | ⬜ |
@@ -1011,7 +1012,59 @@ cells numbered by the grid builder and three are detector-level literals, and
 `NEEDS_REVIEW_BELOW = 0.95` in `main.js` cuts across both. One threshold over
 two different scales is what produces the flood of 167.
 
-**I24** ⬜ "Columns → rows → cells" fails on the documents this targets: a
+**I24** 🔨 `piply_opdf/structure/` — the engine is built and correct on the
+case the plan names. Feeding it is I28.
+
+Given the statement from the plan, with a description wrapping onto three
+lines and a closing-balance row with no date:
+
+```
+4 rows x 3 columns, 1 wrapped, 0 doubtful
+  ['Date',  'Description',                              'Amount']
+  ['04/28', 'Wire transfer received from Acme Indust…', '1200'  ]
+  ['05/01', 'Payment',                                  '500'   ]
+  ['',      'Closing balance',                          '700'   ]
+```
+
+Three lines folded into one row, and the total row kept despite having nothing
+in the first column. **Identical at half and double resolution**, because every
+threshold is in text-heights or relative to the document's own line spacing.
+
+The rule that makes it work is implemented as the `spread` signal: how many
+columns a line touches, weighted highest of the three. It names no particular
+column, which is the point — a line filling four of five columns is a row
+whatever column it starts in.
+
+Three corrections found by running it, each now a test:
+
+* A column runs to where the **next** column starts, not to where its own text
+  stops. Ragged right margins are clear on most lines too, so ending a band at
+  its gap's start cut the description column off at its narrowest line and left
+  every longer value outside every cell.
+* Column boundaries are snapped to real text, not to the search grid. Gaps are
+  counted coarsely so near-identical boundaries merge; that resolution leaked
+  into the answer and a column began three pixels right of its own first word.
+* Indentation is compared against the **row's** first line, not the physically
+  preceding one. A description wrapping onto two lines lost the signal on the
+  second, because its predecessor was the first wrap and they share a left
+  edge.
+
+**I28** ⬜ Nothing feeds it yet. Two ends:
+
+* `BorderlessTableDetector` still clusters by Y-centre with fixed pixel
+  thresholds (15, 30, 40), which is both the wrapped-row bug and a violation
+  of the scale-free rule. It should hand its region's blocks to
+  `build_grid`.
+* On a scan there is no text layer, so the blocks must come from OCR. The
+  engine already takes boxes rather than a text layer, which is why it can
+  serve both — but the wiring does not exist. `Sbizhub_C2219080509040.pdf`
+  yields nothing today for exactly this reason.
+
+Also needed: **scope the region**. Run on a whole invoice page the engine finds
+columns in the delivery address, because that is what it was asked —
+`OD330106520353075100.pdf` gives 33 rows by 6 columns from the full page.
+
+**I24 (original note)** "Columns → rows → cells" fails on the documents this targets: a
 wrapped description looks like new rows, so every column after it misaligns.
 Rebuilt as text blocks → candidate columns → horizontal alignment → baseline
 clustering → **continuation analysis** → row candidates → row confidence →

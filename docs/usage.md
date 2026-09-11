@@ -141,6 +141,30 @@ confidence signal, one of six inputs. And matching nothing returns `None`, not
 a low score: with a sparse store, a non-match means the store is thin rather
 than the region being odd.
 
+## Borderless table structure
+
+Rows and cells for a table nobody drew lines on. Takes boxes, not a text layer,
+so the same code serves a digital PDF and a scan where OCR supplies them.
+
+```python
+from piply_opdf.structure import TextBlock, build_grid
+
+grid = build_grid([TextBlock(bbox, text) for bbox, text in words])
+print(grid.summary())        # 4 rows x 3 columns, 1 wrapped, 0 doubtful
+
+for row in grid.rows:
+    print(row.confidence, row.evidence, row.lines)
+    print([grid.cell(row.index, c.index).text for c in grid.columns])
+```
+
+**Give it one table's blocks, not a whole page** — run on a whole invoice it
+will find columns in the delivery address, because that is what it was asked.
+
+A wrapped description is folded back into its row (`row.lines > 1`), and a row
+with nothing in the first column is still a row: no column is the mandatory
+anchor. `row.evidence` says why each boundary was drawn, so a wrong split can
+be argued with.
+
 ## Confidence
 
 A score derived from six named signals, and taken apart afterwards.

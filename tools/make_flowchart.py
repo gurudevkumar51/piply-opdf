@@ -27,7 +27,7 @@ FOOTER = (
     "Runs fully offline on ordinary hardware · No cloud services · "
     "Learns from every correction an operator makes"
 )
-VERSION_NOTE = "Status as at September 2026 · 567 automated tests passing"
+VERSION_NOTE = "Status as at September 2026 · 585 automated tests passing"
 
 # status: "done" | "part" | "plan"
 STAGES_TOP = [
