@@ -92,6 +92,7 @@ class Document:
         source_path: str | Path,
         config: str | Path | Config | None = None,
         work_dir: str | Path | None = None,
+        layout_store: Any | None = None,
     ) -> None:
         self.source_path = Path(source_path).resolve()
         if not self.source_path.exists():
@@ -122,6 +123,15 @@ class Document:
         self.baseline_regions: list[dict] = []
         #: One fusion summary per page, for diagnosis.
         self.fusion_reports: dict[int, str] = {}
+        #: An open :class:`~piply_opdf.knowledge.LayoutKnowledgeStore`, or None.
+        #: Optional because the package must work without one — a knowledge
+        #: base that has to exist before anything runs is a knowledge base
+        #: nobody can start using.
+        self.layout_store = layout_store
+        #: How well each page's confidence scores separated, keyed by page.
+        #: Worth watching: if they bunch, the review queue is arbitrary however
+        #: it is sorted, which is the failure the evidence score replaces.
+        self.confidence_reports: dict[int, Any] = {}
 
         logger.info(
             "Document initialised: %s | work_dir: %s",
@@ -623,6 +633,14 @@ class Document:
             if use_baseline:
                 self._fuse_baseline(page_ctx, page_num)
 
+            # --- STAGE 9: Confidence, from evidence rather than literals ---
+            # Last, because it reads what every earlier stage produced: the
+            # rule that fired, the shape it produced, the ink inside it, and
+            # the baseline's opinion where there was one. Running it before
+            # fusion would score components the model had not yet weighed in
+            # on.
+            self._score_page(page_num)
+
             import cv2
             for b in borderless:
                 tx, ty, tw, th = b.bbox
@@ -919,18 +937,35 @@ class Document:
 
     def _components_on_page(self, page_num: int) -> list:
         """Every rule-detected component on a page, as DetectedComponent."""
+        return [component for _source, component in self._page_components(page_num)]
+
+    def _page_components(self, page_num: int) -> list[tuple[Any, Any]]:
+        """``(source, component)`` for everything detected on a page.
+
+        ``source`` is the object the component was built from — a raw dict for
+        most collections, a table model for tables. Handed back alongside so a
+        result worked out here (a confidence, say) can be written where the
+        rest of the pipeline will actually read it, rather than onto a copy
+        that is thrown away.
+        """
         from piply_opdf.core.types import DetectedComponent
 
-        found: list[DetectedComponent] = []
-        for name in ("panels", "headers", "footers", "titles", "key_values",
-                     "paragraphs", "sentences", "list_items", "graphics"):
-            for raw in getattr(self, name, []) or []:
-                if raw.get("page", 1) != page_num:
-                    continue
-                box = BBox.from_any(raw.get("bbox"))
-                if box is None:
-                    continue
-                found.append(
+        found: list[tuple[Any, DetectedComponent]] = []
+
+        def collect(raw: dict) -> None:
+            """One raw dict and everything nested inside it.
+
+            Children are included deliberately. Most of what a person actually
+            reviews is cells and segmented units, not the container that holds
+            them — on `sample.pdf` the top level is 4 regions and the tree
+            below it is nearly 200. Scoring only the top level would leave the
+            review queue describing the handful of things nobody was worried
+            about.
+            """
+            box = BBox.from_any(raw.get("bbox"))
+            if box is not None:
+                found.append((
+                    raw,
                     DetectedComponent(
                         id=raw.get("id", ""),
                         type=raw.get("type", "UNKNOWN"),
@@ -938,8 +973,18 @@ class Document:
                         bbox=box,
                         confidence=raw.get("confidence", 0.5),
                         metadata=raw.get("metadata", {}) or {},
-                    )
-                )
+                    ),
+                ))
+            for child in raw.get("children") or []:
+                if isinstance(child, dict):
+                    collect(child)
+
+        for name in ("panels", "headers", "footers", "titles", "key_values",
+                     "paragraphs", "sentences", "list_items", "graphics"):
+            for raw in getattr(self, name, []) or []:
+                if raw.get("page", 1) != page_num:
+                    continue
+                collect(raw)
 
         for table in list(self.tables) + list(self.borderless_tables):
             if getattr(table, "page", 1) != page_num:
@@ -947,16 +992,69 @@ class Document:
             tb = getattr(table, "bbox", None)
             if tb is None:
                 continue
-            found.append(
+            found.append((
+                table,
                 DetectedComponent(
                     id=str(getattr(table, "table_id", "")),
                     type=ComponentType.TABLE,
                     page=page_num,
                     bbox=BBox(int(tb.x), int(tb.y), int(tb.width), int(tb.height)),
                     confidence=getattr(table, "confidence", 0.8),
-                )
-            )
+                ),
+            ))
         return found
+
+    def _score_page(self, page_num: int) -> None:
+        """Replace each component's literal confidence with an evidence score.
+
+        The literal is not discarded — it becomes ``detector_evidence``, one of
+        six signals, because "this rule fired at 0.85" is genuine evidence about
+        the region. What changes is that it stops being the *whole* answer.
+
+        The itemised evidence is written to ``metadata['confidence']`` so it
+        travels with the component into the manifest and the database. A score
+        whose reasoning was thrown away cannot be argued with, and an operator
+        who cannot argue with it will either trust it blindly or ignore it.
+
+        Scores are a **ranking, not a probability**, until the weights are
+        fitted against a labelled corpus. :attr:`confidence_reports` records
+        whether they separated enough to be worth sorting at all.
+        """
+        from piply_opdf.confidence import assess, spread
+
+        images = self.page_images.get(page_num)
+        if images is None:
+            return
+        height, width = images.structural.shape[:2]
+
+        scored = []
+        for source, component in self._page_components(page_num):
+            crop = self._crop(images.structural, component.bbox)
+            confidence = assess(
+                component, (width, height), crop=crop, store=self.layout_store,
+            )
+            scored.append(confidence)
+
+            if isinstance(source, dict):
+                source["confidence"] = round(confidence.score, 4)
+                source.setdefault("metadata", {})["confidence"] = confidence.as_metadata()
+            else:
+                source.confidence = round(confidence.score, 4)
+
+        if scored:
+            self.confidence_reports[page_num] = spread(scored)
+            logger.info("Page %d confidence: %s",
+                        page_num, self.confidence_reports[page_num].summary())
+
+    @staticmethod
+    def _crop(image, box: BBox):
+        """The region's own pixels, or None when the box falls outside them."""
+        height, width = image.shape[:2]
+        x1, y1 = max(0, box.x), max(0, box.y)
+        x2, y2 = min(width, box.x1), min(height, box.y1)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return image[y1:y2, x1:x2]
 
     def _grid_rows_as_key_values(
         self,

@@ -78,6 +78,16 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         # Parse output manifests and populate DB
         
         # Helper to process a manifest component
+        def _evidence_of(manifest):
+            """The itemised confidence evidence, as JSON, or None.
+
+            Stored beside the score rather than instead of it: a number an
+            operator cannot interrogate is one they will either trust blindly
+            or ignore entirely.
+            """
+            evidence = (manifest.get('metadata') or {}).get('confidence')
+            return json.dumps(evidence) if evidence else None
+
         def insert_component(manifest, comp_type, page_num, parent_id=None, row_idx=None):
             # Normalize bbox to [x0, y0, x1, y1] array format
             bbox = manifest.get('bbox', [])
@@ -105,7 +115,11 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                 bbox=json.dumps(bbox),
                 confidence=manifest.get('confidence', 1.0),
                 manifest_path=stored_path,
-                parent_id=parent_id
+                parent_id=parent_id,
+                # The reasoning behind the score, when the pipeline worked one
+                # out. Absent for table cells, whose number comes from the grid
+                # builder rather than from a detector claim.
+                evidence_json=_evidence_of(manifest),
             )
             db.add(db_comp)
             db.flush() # get id
@@ -174,7 +188,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         for h in piply_doc.headers:
             if isinstance(h, dict):
                 page_num = h.get('page', h.get('page_number', 1))
-                insert_component({"bbox": h.get('bbox', []), "text": h.get('text', ''), "confidence": h.get('confidence', 1.0)}, "HEADER", page_num)
+                insert_component({"bbox": h.get('bbox', []), "text": h.get('text', ''), "confidence": h.get('confidence', 1.0), "metadata": h.get('metadata')}, "HEADER", page_num)
             else:
                 page_num = getattr(h, 'page', getattr(h, 'page_number', 1))
                 insert_component({"bbox": getattr(h, 'bbox', []), "text": getattr(h, 'text', ''), "confidence": getattr(h, 'confidence', 1.0)}, "HEADER", page_num)
@@ -183,7 +197,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         for f in piply_doc.footers:
             if isinstance(f, dict):
                 page_num = f.get('page', f.get('page_number', 1))
-                insert_component({"bbox": f.get('bbox', []), "text": f.get('text', ''), "confidence": f.get('confidence', 1.0)}, "FOOTER", page_num)
+                insert_component({"bbox": f.get('bbox', []), "text": f.get('text', ''), "confidence": f.get('confidence', 1.0), "metadata": f.get('metadata')}, "FOOTER", page_num)
             else:
                 page_num = getattr(f, 'page', getattr(f, 'page_number', 1))
                 insert_component({"bbox": getattr(f, 'bbox', []), "text": getattr(f, 'text', ''), "confidence": getattr(f, 'confidence', 1.0)}, "FOOTER", page_num)
@@ -199,6 +213,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                         "key": kv.get('key', ''),
                         "value": kv.get('value', ''),
                         "confidence": kv.get('confidence', 1.0),
+                        "metadata": kv.get('metadata'),
                         "image_path": kv.get('image_path'),
                         "manifest_path": kv.get('manifest_path'),
                     },
@@ -215,6 +230,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                         "bbox": paragraph.get('bbox', []),
                         "text": paragraph.get('text', ''),
                         "confidence": paragraph.get('confidence', 1.0),
+                        "metadata": paragraph.get('metadata'),
                         "image_path": paragraph.get('image_path'),
                         "manifest_path": paragraph.get('manifest_path'),
                     },
@@ -227,6 +243,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                             "bbox": word.get("bbox", []),
                             "text": word.get("text", ""),
                             "confidence": word.get("confidence", 1.0),
+                            "metadata": word.get("metadata"),
                             "image_path": word.get("image_path"),
                             "manifest_path": word.get("manifest_path"),
                         },
@@ -244,6 +261,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                         "bbox": sentence.get('bbox', []),
                         "text": sentence.get('text', ''),
                         "confidence": sentence.get('confidence', 1.0),
+                        "metadata": sentence.get('metadata'),
                         "image_path": sentence.get('image_path'),
                         "manifest_path": sentence.get('manifest_path'),
                     },
@@ -256,6 +274,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                             "bbox": word.get("bbox", []),
                             "text": word.get("text", ""),
                             "confidence": word.get("confidence", 1.0),
+                            "metadata": word.get("metadata"),
                             "image_path": word.get("image_path"),
                             "manifest_path": word.get("manifest_path"),
                         },
@@ -273,6 +292,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                         "bbox": li.get('bbox', []),
                         "text": li.get('text', ''),
                         "confidence": li.get('confidence', 1.0),
+                        "metadata": li.get('metadata'),
                         "image_path": li.get('image_path'),
                         "manifest_path": li.get('manifest_path'),
                     },
@@ -285,6 +305,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                             "bbox": word.get("bbox", []),
                             "text": word.get("text", ""),
                             "confidence": word.get("confidence", 1.0),
+                            "metadata": word.get("metadata"),
                             "image_path": word.get("image_path"),
                             "manifest_path": word.get("manifest_path"),
                         },

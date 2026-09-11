@@ -19,6 +19,7 @@ REVIEWABLE_COMPONENT_TYPES = ["CELL", "KEY_VALUE", "LIST_ITEM", "SENTENCE", "PAR
 
 # Create database tables
 models.Base.metadata.create_all(bind=database.engine)
+database.ensure_columns()
 
 app = FastAPI(title="Piply OPDF Review & Validation")
 

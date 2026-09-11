@@ -137,6 +137,16 @@ def structural_signal(component: DetectedComponent, crop: Any | None) -> Signal:
     if crop is None:
         return Signal(SignalKind.STRUCTURAL, None, "no crop available")
 
+    # A container's ink belongs to its children, and the classifier has no
+    # concept of "container" — it names what it sees. Found by running this on
+    # `sample.pdf`: a PANEL holding a signature scored 0.30 structural
+    # evidence, reason "the ink reads as SIGNATURE, not PANEL". True about the
+    # ink, and no evidence at all about the panel claim. Judging a box by its
+    # contents would penalise every container for containing something.
+    if component.type in ComponentType.CONTAINER:
+        return Signal(SignalKind.STRUCTURAL, None,
+                      f"a {component.type} is judged by its children, not its own ink")
+
     from piply_opdf.classification import classify, measure
 
     verdict = classify(measure(crop))

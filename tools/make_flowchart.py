@@ -144,8 +144,10 @@ def card(d: ImageDraw.ImageDraw, box, stage) -> None:
     x0, y0, x1, y1 = box
     style = STATUS[stage["status"]]
 
-    d.rounded_rectangle([x0 + 5, y0 + 6, x1 + 5, y1 + 6], radius=18, fill=(238, 234, 226))
-    d.rounded_rectangle([x0, y0, x1, y1], radius=18, fill=WHITE, outline=LINE, width=2)
+    d.rounded_rectangle([x0 + 5, y0 + 6, x1 + 5, y1 + 6],
+                        radius=18, fill=(238, 234, 226))
+    d.rounded_rectangle([x0, y0, x1, y1], radius=18,
+                        fill=WHITE, outline=LINE, width=2)
     d.rounded_rectangle([x0, y0, x1, y0 + 12], radius=6, fill=style["bar"])
 
     # Left edge shows which side of the product owns this stage — the engine
@@ -169,7 +171,8 @@ def card(d: ImageDraw.ImageDraw, box, stage) -> None:
     # status tag
     label = style["label"]
     lw = d.textlength(label, font=F_TAG)
-    d.rounded_rectangle([x1 - lw - 46, y1 - 46, x1 - 20, y1 - 14], radius=9, fill=style["tint"])
+    d.rounded_rectangle([x1 - lw - 46, y1 - 46, x1 - 20,
+                        y1 - 14], radius=9, fill=style["tint"])
     d.text((x1 - lw - 33, y1 - 41), label, font=F_TAG, fill=style["bar"])
 
 
@@ -181,10 +184,12 @@ def arrow(d, start, end, colour=INK_SOFT, width=5, head=20) -> None:
 
     if x1 == x0:                      # vertical
         s = 1 if y1 > y0 else -1
-        d.polygon([(x1, y1), (x1 - head, y1 - s * head), (x1 + head, y1 - s * head)], fill=colour)
+        d.polygon([(x1, y1), (x1 - head, y1 - s * head),
+                  (x1 + head, y1 - s * head)], fill=colour)
     else:                             # horizontal
         s = 1 if x1 > x0 else -1
-        d.polygon([(x1, y1), (x1 - s * head, y1 - head), (x1 - s * head, y1 + head)], fill=colour)
+        d.polygon([(x1, y1), (x1 - s * head, y1 - head),
+                  (x1 - s * head, y1 + head)], fill=colour)
 
 
 def elbow(d, start, end, colour=INK_SOFT, width=5) -> None:
@@ -246,7 +251,7 @@ def build() -> Image.Image:
     last_top = top_boxes[-1]
     first_bot = bot_boxes[0]
     arrow(d, ((last_top[0] + last_top[2]) // 2, top_y1 + 8),
-             ((first_bot[0] + first_bot[2]) // 2, bot_y0 - 12))
+          ((first_bot[0] + first_bot[2]) // 2, bot_y0 - 12))
 
     # ── memory box ───────────────────────────────────────────────────────────
     # Placed in the space the bottom row leaves free, so the loop is visible
@@ -256,7 +261,8 @@ def build() -> Image.Image:
     my0, my1 = bot_y0, bot_y1
     style = STATUS[MEMORY["status"]]
 
-    d.rounded_rectangle([mx0 + 5, my0 + 6, mx1 + 5, my1 + 6], radius=18, fill=(238, 234, 226))
+    d.rounded_rectangle([mx0 + 5, my0 + 6, mx1 + 5, my1 + 6],
+                        radius=18, fill=(238, 234, 226))
     d.rounded_rectangle([mx0, my0, mx1, my1], radius=18, fill=style["tint"],
                         outline=style["bar"], width=3)
     # Memory belongs to the engine, like the other engine stages.
@@ -266,7 +272,8 @@ def build() -> Image.Image:
 
     tag = "The system gets better every time"
     tw = d.textlength(tag, font=F_TAG)
-    d.rounded_rectangle([mx1 - tw - 60, my0 + 38, mx1 - 30, my0 + 74], radius=9, fill=WHITE)
+    d.rounded_rectangle([mx1 - tw - 60, my0 + 38, mx1 -
+                        30, my0 + 74], radius=9, fill=WHITE)
     d.text((mx1 - tw - 45, my0 + 45), tag, font=F_TAG, fill=style["bar"])
 
     y = my0 + 100
@@ -304,12 +311,16 @@ def build() -> Image.Image:
 
     # ── owner band ───────────────────────────────────────────────────────────
     by = 1330
-    d.rounded_rectangle([80, by, W - 80, by + 92], radius=14, fill=WHITE, outline=LINE, width=2)
+    d.rounded_rectangle([80, by, W - 80, by + 92], radius=14,
+                        fill=WHITE, outline=LINE, width=2)
 
-    d.rounded_rectangle([116, by + 30, 150, by + 62], radius=6, fill=OWNER["library"])
-    d.text((166, by + 30), "Engine — reusable in any product", font=F_BAND, fill=INK)
+    d.rounded_rectangle([116, by + 30, 150, by + 62],
+                        radius=6, fill=OWNER["library"])
+    d.text((166, by + 30), "Engine — reusable in any product",
+           font=F_BAND, fill=INK)
 
-    d.rounded_rectangle([916, by + 30, 950, by + 62], radius=6, fill=OWNER["screen"])
+    d.rounded_rectangle([916, by + 30, 950, by + 62],
+                        radius=6, fill=OWNER["screen"])
     d.text((966, by + 30), "Operator screen — uses the engine, never the reverse",
            font=F_BAND, fill=INK)
 
@@ -324,7 +335,8 @@ def build() -> Image.Image:
 
 
 def main() -> int:
-    out = Path(__file__).resolve().parents[1] / "docs" / "images" / "system_flow.png"
+    out = Path(__file__).resolve().parents[1] / \
+        "docs" / "images" / "system_flow.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     build().save(out, "PNG", optimize=True)
     print(f"wrote {out}  ({out.stat().st_size // 1024} KB)")

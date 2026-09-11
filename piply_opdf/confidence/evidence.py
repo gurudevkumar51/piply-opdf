@@ -1,12 +1,17 @@
 """
 Confidence as an evidence score.
 
-Today every confidence in this package is a **literal written in the code** — a
+Every confidence a *detector* produces is a **literal written in the code** — a
 paragraph is always 0.70, a logo always 0.85. Each one means one thing: *this
-rule fired*. They are not wrong so much as empty, and the consequence is
-visible in the review screen, which flags 167 of 202 components on a page
-because almost every score sits in the same narrow band. "Review the doubtful
-ones" selects everything, so it selects nothing.
+rule fired*. They are not wrong so much as empty: two paragraphs on the same
+page score identically whether one is a clean block of text and the other is a
+misread strip of table.
+
+A measurement, so this is not an assumption. On `sample.pdf` the components
+already carry 45 distinct values between 0.25 and 1.0 — so they are not all
+identical. But the ones that vary are grid cells, whose number comes from the
+grid builder; the detector-level regions are literals, and nothing anywhere
+says *why* any of them is what it is. That is the gap this closes.
 
 The replacement is not a better literal. It is a number **derived from named,
 itemised evidence**, so that a component's score can be taken apart:

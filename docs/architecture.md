@@ -300,9 +300,15 @@ and halved every confidence, which made the penalty meaningless.
 Levels 1 and 2 are real: a human verified it, or the image is the same image.
 **Everything below that is a literal written into the code** — a paragraph is
 always 0.70, a logo always 0.85. They mean "this rule fired", not "right this
-often", so a threshold over them does not separate safe from unsafe. Confirmed
-by running the app: the review screen flags 167 of 202 components on
-`sample.pdf`.
+often", and nothing records *why* a region scored what it did.
+
+Measured on `sample.pdf`, to be precise about it: the 202 stored components
+carry 45 distinct confidences between 0.25 and 1.0, so they are not all alike.
+But 199 of those 202 are cells, rows and columns whose number comes from the
+grid builder, and the three detector-level regions are literals. A cell at 0.50
+and a header at 0.85 are not on the same scale, so a single threshold across
+them compares things that were never comparable — which is why cutting at 0.95
+selects 167 of the 202.
 
 ---
 
@@ -343,8 +349,13 @@ which it cannot.
 been right 90% of the time is not thereby right about *this* region, and a good
 track record carrying the score would hide exactly the cases worth catching.
 
-**Not yet wired in.** Nothing in the pipeline calls `assess()`, so the review
-screen is unchanged. That is backlog I25.
+**Wired in at stage 9**, after fusion so the baseline's opinion is included.
+The itemised evidence is written to `components.evidence_json` and shown in the
+review screen's *why* panel.
+
+**It does not reach table cells.** Cells, rows and columns are built after
+stage 9 and numbered by the grid builder, so on `sample.pdf` 200 of 202
+components carry a confidence with no account of it. Backlog I26.
 
 ---
 

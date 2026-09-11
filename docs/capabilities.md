@@ -113,7 +113,11 @@ never resolved silently. Off by default: it costs several seconds a page.
   taken apart afterwards — an operator asking "why is this only 0.55?" gets an
   itemised answer, including which signals nobody could measure
 - A review queue ordered worst-first, cut by **how much time a person has**
-  rather than by a threshold the score cannot yet justify
+  rather than by a threshold the score cannot yet justify — on `sample.pdf`
+  this turns "167 need a look" into "the worst 25", with the full count kept
+  in reach
+- The review screen shows **why** a region scored what it did, including the
+  signals nobody could measure
 
 ### Segmentation
 
@@ -140,7 +144,7 @@ never resolved silently. Off by default: it costs several seconds a page.
 | **Merged table cells** | rowspan / colspan not represented | F9 |
 | **`SUBHEADING`** | In the vocabulary; nothing produces it yet | I11 |
 | **Calibrated confidence** | The evidence score exists and separates properly, but its weights are argued rather than fitted, so a 0.90 is a *ranking* position, not "right nine times in ten" | I22 |
-| **Confidence wired into the pipeline** | Nothing calls `assess()` yet, so the review screen still flags 167 of 202 components on `sample.pdf` | I25 |
+| **Evidence for table cells** | Detected regions are scored from evidence; cells, rows and columns are not, so 200 of 202 components on `sample.pdf` show "no evidence recorded" | I26 |
 
 Implemented since an earlier version of this table said otherwise: `PANEL`
 (F1), recursive detection inside containers (F2), `STAMP` (F3), `SEPARATOR`,

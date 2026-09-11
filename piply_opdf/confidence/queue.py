@@ -1,12 +1,17 @@
 """
 Who a person should look at first.
 
-The screen today offers "review everything below 95%", which on a real page
-selects 167 of 202 components — a list nobody works through, so in practice
-nothing is reviewed at all. A threshold is the wrong control while the score is
-a ranking rather than a probability: it asks a question the number cannot yet
-answer ("which of these are probably wrong?") instead of the one it can
-("which of these are weakest?").
+The screen today offers "review everything below 95%". On `sample.pdf` that
+selects **167 of 202 components** — not because the scores are all alike, but
+because a 0.95 cutoff sits above almost every value the pipeline produces, and
+a cell scoring 0.5 from the grid builder means something different from a
+header scoring 0.85 from a rule. A list that long is a list nobody works
+through, so in practice nothing is reviewed.
+
+A threshold is the wrong control while the score is a ranking rather than a
+probability: it asks a question the number cannot yet answer ("which of these
+are probably wrong?") instead of the one it can ("which of these are
+weakest?").
 
 So the primary control here is **capacity**. An operator has an hour; the queue
 returns the twenty regions worth that hour, worst first. That is answerable

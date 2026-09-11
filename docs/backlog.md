@@ -55,13 +55,13 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | A | Foundation for scanned input | 1 | 4 | 🟠 |
 | C | Operator workbench (UI) | 0 | 19 | 🟠 |
 | D | HTML reconstruction | 0 | 4 | 🟠 |
-| I | Template intelligence | 2 | 25 | 🟠 |
+| I | Template intelligence | 3 | 26 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
 | K | Knowledge architecture | 2 | 7 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **23** | **114** | **91 outstanding** |
+| | **Total** | **24** | **115** | **91 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -723,7 +723,8 @@ reused, by hash. Reusing the **entire layout** is a much larger win.
 | I22 | Confidence as a calibrated evidence score | 🔨 |
 | I23 | Never silently trust: evidence, source and review status on every component | ⬜ |
 | I24 | Borderless tables rebuilt around continuation analysis | ⬜ |
-| I25 | Wire the evidence score into the pipeline and the review screen | ⬜ |
+| I25 | Wire the evidence score into the pipeline and the review screen | ✅ |
+| I26 | Score table cells, rows and columns from evidence too | ⬜ |
 
 **I5–I7** come from the template-learning request. Planned in detail in
 [plan-templates.md](plan-templates.md) — **plan only, nothing built**.
@@ -945,12 +946,45 @@ itemised `evidence`, `confidence`, `source_detector`, `knowledge_match` and
 `review_status`. Insufficient confidence means human review. **A template match
 can never override geometry verification.**
 
-**I25** ⬜ Nothing calls `assess()` yet. `document.py` should attach a
-`Confidence` to every component and store `as_metadata()` on it, and the review
-screen should replace "show everything below 95%" with a capacity-based queue
-and a *why* panel. Until this lands the evidence score exists but changes
-nothing an operator sees: the screen still flags 167 of 202 components on
-`sample.pdf`.
+**I25** ✅ `document.py` scores every detected region at stage 9 — after
+fusion, so the baseline's opinion is included — and writes the itemised
+evidence to `components.evidence_json`. The review screen replaces the fixed
+0.95 cutoff with a capacity queue, and a *why* panel shows the case for each
+score.
+
+Measured on `sample.pdf` through the app: **"need a look" went from 167 to 25**
+(the queue size), with the full count kept in the tooltip. The header's panel
+reads:
+
+```
+LAYOUT CONFIDENCE 75% · RANKING, NOT A PROBABILITY
+  the rule that fired            0.70  cv-zone rule fired
+  does the shape fit the type    1.00  a header sits at the top, and it is in the top band
+  has this been confirmed before  —    no layout knowledge base attached
+  does the ink support it        0.56  the ink reads as PARAGRAPH — same family as
+                                       HEADER, so it supports without confirming
+  is this detector usually right  —    no review history yet
+  the baseline model              —    baseline did not run on this region
+```
+
+**The limit, stated plainly: only 2 of 202 components carry evidence** — see
+I26.
+
+**I26** ⬜ Scoring reaches detected regions and their segmented children, not
+table cells, rows or columns. On `sample.pdf` that is 200 of 202 components, so
+the *why* panel falls back to "no evidence recorded" almost everywhere. Cells
+are `CellManifest` objects built after stage 9 rather than dicts in the
+detector collections, and their confidence comes from the grid builder, which
+raises a design question worth answering rather than guessing: what does
+`geometry_evidence` mean for a cell? `structural_evidence` clearly does mean
+something — a cell whose ink reads as a signature is worth flagging — so this
+is worth doing, just not by pretending the other five signals apply.
+
+The threshold is the bigger half. On `sample.pdf` the 202 components carry 45
+distinct confidences from 0.25 to 1.0 — they are not all alike — but 199 are
+cells numbered by the grid builder and three are detector-level literals, and
+`NEEDS_REVIEW_BELOW = 0.95` in `main.js` cuts across both. One threshold over
+two different scales is what produces the flood of 167.
 
 **I24** ⬜ "Columns → rows → cells" fails on the documents this targets: a
 wrapped description looks like new rows, so every column after it misaligns.

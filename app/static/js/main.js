@@ -362,9 +362,25 @@ function renderComponentTree() {
     drawBBoxes();
 }
 
-//: Below this a component is treated as needing a human look. Matches the
-//: threshold the OCR panel already uses for its bulk-accept action.
-const NEEDS_REVIEW_BELOW = 0.95;
+document.getElementById('review-capacity')?.addEventListener('change', () => {
+    if (components && components.length) updateReviewProgress(buildComponentTree());
+});
+
+//: A component below this is treated as unresolved. Deliberately NOT a
+//: "probably wrong" line: confidence here is a ranking, not a probability, and
+//: the numbers do not even share a scale — a cell's comes from the grid
+//: builder, a header's from a detector rule. The old 0.95 cutoff ran across
+//: both and selected 167 of 202 components on sample.pdf, which is a list
+//: nobody works through.
+//:
+//: So this only decides who is *eligible* for the queue. How many you actually
+//: get is chosen by capacity, below.
+const UNRESOLVED_BELOW = 0.95;
+
+//: A single signal this low is a contradiction rather than a weak vote — the
+//: pipeline says so in the evidence, and such regions jump the queue. Matches
+//: ALARM_BELOW in piply_opdf/confidence/evidence.py.
+const CONTRADICTION_BELOW = 0.35;
 
 function isChecked(c) {
     const pred = c.predictions && c.predictions.length ? c.predictions[0] : null;
@@ -372,7 +388,61 @@ function isChecked(c) {
 }
 
 function needsReview(c) {
-    return !isChecked(c) && (c.confidence ?? 1) < NEEDS_REVIEW_BELOW;
+    return !isChecked(c) && (c.confidence ?? 1) < UNRESOLVED_BELOW;
+}
+
+/** The itemised evidence behind a component's score, or null. */
+function evidenceOf(c) {
+    if (!c.evidence_json) return null;
+    try { return JSON.parse(c.evidence_json); } catch { return null; }
+}
+
+/** Signals low enough to overrule an otherwise comfortable score. */
+function contradictionsOf(c) {
+    const evidence = evidenceOf(c);
+    if (!evidence || !evidence.signals) return [];
+    return Object.entries(evidence.signals)
+        .filter(([, s]) => s.value !== null && s.value < CONTRADICTION_BELOW)
+        .map(([kind, s]) => ({ kind, ...s }));
+}
+
+/**
+ * The regions worth a person's next stretch of attention, worst first.
+ *
+ * Capacity rather than threshold. "The worst twenty" is a question a ranking
+ * can answer; "everything probably wrong" is not, and asking it is what
+ * produced a 167-item list.
+ */
+function reviewQueue(components, capacity) {
+    const eligible = components.filter(needsReview);
+    eligible.sort((a, b) => {
+        const ac = contradictionsOf(a).length > 0;
+        const bc = contradictionsOf(b).length > 0;
+        if (ac !== bc) return ac ? -1 : 1;   // a specific fault beats a low average
+        return (a.confidence ?? 1) - (b.confidence ?? 1);
+    });
+    return capacity > 0 ? eligible.slice(0, capacity) : eligible;
+}
+
+/**
+ * Mean absolute deviation of the scores.
+ *
+ * Reported so nobody assumes the ordering means something when it does not: if
+ * every component lands within a hair of every other, the queue is arbitrary
+ * however carefully it is sorted. Mirrors spread() in
+ * piply_opdf/confidence/queue.py.
+ */
+function scoreSpread(components) {
+    const scores = components.map(c => c.confidence ?? 1);
+    if (scores.length < 2) return null;
+    const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const variation = scores.reduce((a, b) => a + Math.abs(b - mean), 0) / scores.length;
+    return {
+        variation,
+        lowest: Math.min(...scores),
+        highest: Math.max(...scores),
+        usable: variation >= 0.02,
+    };
 }
 
 // Walks the tree, because a table's cells are where the real work is and they
@@ -394,11 +464,32 @@ function updateReviewProgress(rootComps) {
     box.hidden = false;
 
     const checked = all.filter(isChecked).length;
-    const low = all.filter(needsReview).length;
+    const capacity = parseInt(document.getElementById('review-capacity')?.value ?? '25', 10);
+    const queued = reviewQueue(all, capacity);
+    const eligible = all.filter(needsReview).length;
 
     document.getElementById('stat-checked').textContent = checked;
     document.getElementById('stat-total').textContent = all.length;
-    document.getElementById('stat-low').textContent = low;
+
+    // Show the queue length, not the eligible count. The second number is the
+    // one that used to read 167 and tell an operator nothing actionable.
+    const lowEl = document.getElementById('stat-low');
+    lowEl.textContent = queued.length;
+    lowEl.title = `${eligible} unresolved in total; showing the ${queued.length} weakest`;
+
+    const spread = scoreSpread(all);
+    const spreadEl = document.getElementById('review-spread');
+    if (spreadEl) {
+        spreadEl.textContent = spread
+            ? (spread.usable
+                ? `${spread.lowest.toFixed(2)}–${spread.highest.toFixed(2)}`
+                : 'scores too alike to rank')
+            : '';
+        spreadEl.title = spread && !spread.usable
+            ? 'Every component scores about the same, so the ordering is arbitrary.'
+            : 'Range of confidence across this page.';
+    }
+
     document.getElementById('review-bar-fill').style.width =
         `${all.length ? (checked / all.length) * 100 : 0}%`;
 }
@@ -614,6 +705,7 @@ function renderOCRPanel(component) {
         }
         ocrPanel.innerHTML = `
             ${imageCropHtml}
+            ${renderWhyPanel(component)}
             <div class="empty-state">No OCR data for this component.</div>
             ${runOcrBtn}
         `;
@@ -627,6 +719,7 @@ function renderOCRPanel(component) {
 
     ocrPanel.innerHTML = `
         ${imageCropHtml}
+        ${renderWhyPanel(component)}
         <div class="mb-4">
             <span class="label-micro">Predicted Text</span>
             <div class="panel mt-1.5 p-2.5 text-ink" style="border-radius: var(--r);">
@@ -650,6 +743,70 @@ function renderOCRPanel(component) {
             </button>
         </div>
     `;
+}
+
+
+/**
+ * The case for a component's layout score, itemised.
+ *
+ * The governing principle is "never silently trust a classification". A score
+ * an operator cannot interrogate is trusted silently by default — they either
+ * believe it or ignore it, and neither is review. So the evidence is shown,
+ * including the signals nobody could measure: "nothing similar has been seen
+ * before" is itself worth knowing.
+ */
+function renderWhyPanel(component) {
+    const evidence = evidenceOf(component);
+    if (!evidence) {
+        const score = component.confidence ?? 1;
+        return `
+        <div class="mb-4">
+            <span class="label-micro">Layout confidence</span>
+            <div class="mt-1 conf ${score < 0.75 ? 'conf-bad' : 'conf-ok'}">${(score * 100).toFixed(0)}%</div>
+            <div class="text-muted-2 text-xs mt-1">
+                No evidence recorded — this number came from the grid builder
+                rather than from a detector claim.
+            </div>
+        </div>`;
+    }
+
+    const labels = {
+        detector_evidence: 'the rule that fired',
+        geometry_evidence: 'does the shape fit the type',
+        knowledge_agreement: 'has this been confirmed before',
+        structural_evidence: 'does the ink support it',
+        historical_reliability: 'is this detector usually right',
+        model_confidence: 'the baseline model',
+    };
+
+    const rows = Object.keys(labels).map(kind => {
+        const signal = evidence.signals[kind];
+        const unmeasured = !signal || signal.value === null;
+        const value = unmeasured ? '—' : signal.value.toFixed(2);
+        const cls = unmeasured ? 'text-muted-2'
+            : (signal.value < CONTRADICTION_BELOW ? 'conf-bad' : '');
+        return `
+        <tr>
+            <td class="text-xs py-0.5">${labels[kind]}</td>
+            <td class="text-xs py-0.5 ${cls}" style="text-align:right; padding-left:0.75rem;">${value}</td>
+            <td class="text-xs py-0.5 text-muted-2" style="padding-left:0.75rem;">${escapeHtml(signal ? signal.reason : 'not measured')}</td>
+        </tr>`;
+    }).join('');
+
+    const contradictions = contradictionsOf(component);
+    const warning = contradictions.length
+        ? `<div class="text-xs conf-bad mt-1.5">One signal contradicts the rest — worth a look whatever the average says.</div>`
+        : '';
+
+    return `
+    <details class="mb-4" ${contradictions.length ? 'open' : ''}>
+        <summary class="label-micro" style="cursor:pointer;">
+            Layout confidence ${(evidence.score * 100).toFixed(0)}%
+            ${evidence.calibrated ? '' : '<span class="text-muted-2">· ranking, not a probability</span>'}
+        </summary>
+        ${warning}
+        <table class="mt-1.5" style="width:100%;">${rows}</table>
+    </details>`;
 }
 
 async function runOcrOnCell(componentId) {

@@ -469,10 +469,14 @@ guess without one would be precisely the failure the governing principle names.
 ## Phase C — Confidence as an evidence score
 
 **🔨 Part built.** The evidence model, the six signals and the review queue
-exist (`piply_opdf/confidence/`, 43 tests). The **calibration** does not — the
-weights are argued rather than fitted, so the score is a ranking, and
-`Confidence.calibrated` is `False` everywhere. Nothing in the pipeline calls it
-yet either; that is I25 in [backlog.md](backlog.md).
+exist (`piply_opdf/confidence/`, 43 tests), and the pipeline and review screen
+both use them: "need a look" on `sample.pdf` went from 167 to 25, and an
+operator can open the case for any score.
+
+Two things are not done. The **calibration** — the weights are argued rather
+than fitted, so the score is a ranking and `Confidence.calibrated` is `False`
+everywhere; that waits on Phase E. And **table cells are not scored**, which is
+200 of 202 components on that page (I26 in [backlog.md](backlog.md)).
 
 Not "confidence has to be earned", which is vague. The rule:
 
@@ -517,6 +521,15 @@ ones" selects everything.
 Confirmed by running the app: on `sample.pdf` the review screen reports
 **167 of 202 components as "need a look"**. A list that long is a list nobody
 works through, so in practice nothing is reviewed.
+
+Being precise about the cause, because it is not quite the obvious one: those
+202 components carry 45 distinct confidences between 0.25 and 1.0, so they do
+*not* all sit in one band. 199 of them are cells, rows and columns numbered by
+the grid builder; only three are detector-level regions carrying literals. The
+flood comes from cutting all of them at 0.95 — one threshold across numbers
+that were never on the same scale. So both halves matter: evidence gives the
+detector-level scores a meaning, and capacity replaces the threshold that was
+never going to work across mixed scales.
 
 The measured difference on a synthetic page with three deliberately misplaced
 regions:
@@ -1000,7 +1013,7 @@ those labels exist, precision and recall are unmeasured, not merely low.
 | 3 | E — measure the current detectors | ⬜ waiting on 2 |
 | 4 | B — baseline model + fusion | ✅ done |
 | 5 | K — knowledge architecture | 🔨 layout store built, nothing writes to it |
-| 6 | C — confidence as an evidence score | 🔨 evidence built; calibration waits on 2 |
+| 6 | C — confidence as an evidence score | 🔨 built and wired; calibration waits on 2 |
 | 7 | R — borderless tables | ⬜ |
 | 8 | E — re-measure | ⬜ waiting on 2 |
 | 9 | N — nested layouts | ⬜ |

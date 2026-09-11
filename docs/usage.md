@@ -137,7 +137,14 @@ Three things to know before using it:
 - **`needs_review()` is separate from the score.** One contradicted signal
   sends a region to a person however comfortable the average.
 
-Nothing in the pipeline calls this yet — see I25 in [backlog.md](backlog.md).
+`Document.process_layout()` runs this automatically. Each component's
+`confidence` becomes its evidence score and `metadata['confidence']` carries
+the reasoning, which the app stores in `components.evidence_json`.
+`doc.confidence_reports[page]` says whether that page's scores separated enough
+to rank.
+
+Table cells, rows and columns are **not** scored this way — their confidence
+still comes from the grid builder. See I26 in [backlog.md](backlog.md).
 
 ## Web application
 

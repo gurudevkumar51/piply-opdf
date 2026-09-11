@@ -38,6 +38,13 @@ class Component(Base):
     # Store complete JSON of features to easily transfer to knowledge base
     features_json = Column(Text, nullable=True)
 
+    # The itemised evidence behind `confidence`, as written by
+    # piply_opdf.confidence. Kept beside the score rather than instead of it:
+    # a number an operator cannot interrogate is one they will either trust
+    # blindly or ignore. Nullable, because components predating the evidence
+    # score still have a confidence and no account of it.
+    evidence_json = Column(Text, nullable=True)
+
     document = relationship("Document", back_populates="components")
     predictions = relationship("OCRPrediction", back_populates="component", cascade="all, delete-orphan")
     children = relationship("Component", backref="parent", remote_side=[id])

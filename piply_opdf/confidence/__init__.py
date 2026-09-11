@@ -1,11 +1,13 @@
 """
 Confidence, derived from evidence rather than written as a literal.
 
-The problem this replaces: every confidence in the package is a constant in the
-source. A paragraph is 0.70, a logo is 0.85, and each means only "this rule
-fired". Because they all sit in the same narrow band, the review screen flags
-167 of 202 components on a real page — a list nobody works through, so nothing
-gets reviewed.
+The problem this replaces: every confidence a detector produces is a constant
+in the source. A paragraph is 0.70, a logo is 0.85, and each means only "this
+rule fired" — so nothing anywhere says *why* a region scored what it did, and
+two regions scoring alike may be alike in no other way.
+
+Downstream, the review screen cuts at 0.95 and selects 167 of 202 components on
+`sample.pdf`. A list that long is a list nobody works through.
 
 The three pieces:
 

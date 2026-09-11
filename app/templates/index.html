@@ -112,6 +112,18 @@
                         Least sure first
                     </label>
                 </div>
+                <div class="review-progress-row">
+                    <label class="review-sort" title="How many regions you have time to check. The queue gives you that many, weakest first.">
+                        Queue
+                        <select id="review-capacity">
+                            <option value="10">worst 10</option>
+                            <option value="25" selected>worst 25</option>
+                            <option value="50">worst 50</option>
+                            <option value="0">all flagged</option>
+                        </select>
+                    </label>
+                    <span id="review-spread" class="review-stat-label"></span>
+                </div>
                 <div class="review-bar"><div id="review-bar-fill" class="review-bar-fill"></div></div>
             </div>
 
@@ -150,5 +162,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/main.js?v=11"></script>
+<script src="/static/js/main.js?v=12"></script>
 {% endblock %}

@@ -9,6 +9,9 @@ class ComponentBase(BaseModel):
     confidence: float
     manifest_path: Optional[str] = None
     parent_id: Optional[int] = None
+    #: Itemised evidence behind `confidence`, as JSON. None for components
+    #: scored before the evidence model existed.
+    evidence_json: Optional[str] = None
 
 class ComponentCreate(ComponentBase):
     pass
