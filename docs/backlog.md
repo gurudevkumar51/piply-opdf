@@ -9,7 +9,7 @@ approve one it moves here and gets an ID.
 For the scanned-PDF goal specifically — the stages, where each stands, and the
 challenges ranked — see [scanned-documents.md](scanned-documents.md).
 
-*Last updated: 2026-09-10 · 535 tests passing, 0 failing.*
+*Last updated: 2026-09-10 · 539 tests passing, 0 failing.*
 
 | Mark | Meaning |
 |------|---------|
@@ -57,11 +57,11 @@ challenges ranked — see [scanned-documents.md](scanned-documents.md).
 | D | HTML reconstruction | 0 | 4 | 🟠 |
 | I | Template intelligence | 4 | 27 | 🟠 |
 | J | Compliance and provenance | 0 | 3 | 🟠 |
-| K | Knowledge architecture | 2 | 7 | 🟠 |
+| K | Knowledge architecture | 3 | 7 | 🟠 |
 | E | Package shape and weight | 0 | 6 | 🟢 anytime |
 | G | Learning | 0 | 4 | 🔵 later |
 | X | Delivered | 12 | 12 | ✅ |
-| | **Total** | **25** | **116** | **91 outstanding** |
+| | **Total** | **26** | **116** | **90 outstanding** |
 
 **Recommended order: F → H → B → C → D → I → J.** E runs at any point.
 
@@ -1129,7 +1129,7 @@ and nothing else.
 | K2 | Human actions recorded by kind | ✅ |
 | K3 | Image-hash appearance features | ⬜ |
 | K4 | Versioning on the text knowledge base | ⬜ |
-| K5 | Write layout knowledge from the review screen | ⬜ |
+| K5 | Write layout knowledge from the review screen | ✅ |
 | K6 | Template knowledge store | ⬜ |
 | K7 | Back up the knowledge bases | ⬜ |
 
@@ -1163,11 +1163,34 @@ failure `layout_knowledge` was built to avoid; the older store still has it.
 Adding nullable columns is cheap. Deciding what an unversioned existing row
 means is not — 1,656 of them predate the question.
 
-**K5 — Write from the review screen** ⬜
-Nothing calls `remember()` in the running system yet. The store is correct and
-empty. This is the wiring: when a person confirms or corrects a region in the
-review UI, describe it and write it, with a `layout_feedback` row beside it.
-Depends on the review screen work in Phase C.
+**K5 — Write from the review screen** ✅
+`POST /layout-feedback/{component_id}` with `confirmed`, `corrected` or
+`deleted`, driven from the review panel's type controls. The store is no longer
+empty: confirming a region on `sample.pdf` writes a record and the count moves.
+
+Three rules the endpoint keeps, each of which would be easy to get wrong:
+
+* **A correction teaches the human's answer, not the detector's.** Storing the
+  type that was just corrected would teach the system the error it was being
+  told about.
+* **A deleted region teaches the detector, not the knowledge base.** It says
+  the detector invented something — a fact about the detector, with no region
+  to learn what one looks like from. It writes a `layout_feedback` row and
+  nothing else.
+* **The description is computed during processing, not at review time.**
+  Relationships need the component tree, and by review time the siblings are
+  database rows; reassembling them would be guesswork. Stored in the new
+  `components.layout_features_json`.
+
+**What this turns on.** `historical_reliability` was unmeasured because nothing
+wrote to the feedback log. It now reads real numbers — after three decisions on
+`sample.pdf`, `grid-builder: 1 confirmed, 1 corrected, 1 deleted` gives type
+accuracy 0.5 and detection precision 0.67. The pipeline reads it at the start of
+each run, so what people teach today changes what the system doubts tomorrow,
+with no code change. That is "missing is not zero" paying off.
+
+`knowledge_agreement` stays unmeasured: records exist now, but comparing a live
+region against them is the LayoutPredictor, which is Phase T.
 
 **K6 — Template knowledge** ⬜
 The third store: "what does a page of this family look like?" Phase T in

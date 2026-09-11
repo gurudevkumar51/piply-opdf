@@ -3,7 +3,7 @@
 Every test in the suite, what it protects, and what is **not** covered.
 
 *From `pytest --collect-only`, 2026-08-17.*
-**320 test functions · 535 cases · 535 passing, 0 failing.**
+**324 test functions · 539 cases · 539 passing, 0 failing.**
 
 Targets and measurement plan: [quality.md](quality.md).
 
@@ -32,7 +32,7 @@ encoded so they cannot recur.
 | Suite | Functions | Cases | Area |
 |-------|-----------|-------|------|
 | `test_header_footer_detectors.py` | 11 | 69 | Header/footer across sizes, DPIs, variants |
-| `test_layout_knowledge.py` | 44 | 44 | Describing regions, and the store's two refusals |
+| `test_layout_knowledge.py` | 48 | 48 | Describing regions, the store's two refusals, and the learning loop |
 | `test_confidence.py` | 53 | 53 | Evidence signals, weighting, and the review queue |
 | `test_classification.py` | 31 | 51 | Rules 0–3, residual sweep, size sanity |
 | `test_detector_parity.py` | 10 | 49 | Digital/scanned parity |
@@ -49,9 +49,9 @@ encoded so they cannot recur.
 | `test_phase2_enhance.py` | 13 | 15 | Enhancement operations |
 | `test_form_layouts.py` | 9 | 14 | Multi-column forms, table false positives |
 | `test_phase1_assess.py` | 12 | 12 | Quality assessment |
-| **Total** | **320** | **535** | |
+| **Total** | **324** | **539** | |
 
-All 535 pass. Run time is about 3 minutes — most of it rendering PDFs to
+All 539 pass. Run time is about 3 minutes — most of it rendering PDFs to
 images, which the tests do on purpose rather than committing fixtures.
 
 ---
@@ -209,7 +209,7 @@ enhancement applies only when the assessment flags it.
 
 ---
 
-## `test_layout_knowledge.py` — 44
+## `test_layout_knowledge.py` — 48
 
 Describing a region so it can be recognised somewhere else, and storing it so
 it stays interpretable.
@@ -243,8 +243,12 @@ it stays interpretable.
 | `test_stale_records_are_carried_across_and_counted` | An export is a copy, not a filtered view |
 | `test_an_unreadable_export_format_is_refused_not_guessed_at` | Format version checked |
 | `test_reopening_the_file_keeps_what_was_written` | It is a real file other applications can read |
+| `test_a_correction_teaches_the_humans_answer_not_the_detectors` | **Storing the corrected-from type would teach the error** |
+| `test_a_deleted_region_teaches_the_detector_not_the_knowledge_base` | No region, nothing to learn a region from |
+| `test_a_detectors_record_becomes_measurable_once_people_review` | The signal that turns itself on, with no code change |
+| `test_learning_from_one_document_is_visible_to_the_next` | The compounding asset, in miniature |
 
-*(27 of 44 shown — the rest are the parametrised band cases and store filters.)*
+*(31 of 48 shown — the rest are the parametrised band cases and store filters.)*
 
 ---
 

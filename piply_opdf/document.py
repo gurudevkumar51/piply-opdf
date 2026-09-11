@@ -132,6 +132,9 @@ class Document:
         #: Worth watching: if they bunch, the review queue is arbitrary however
         #: it is sorted, which is the failure the evidence score replaces.
         self.confidence_reports: dict[int, Any] = {}
+        #: Each detector's track record, read once from the layout store's
+        #: feedback log. Empty until people have reviewed something.
+        self._history: dict[str, Any] = {}
 
         logger.info(
             "Document initialised: %s | work_dir: %s",
@@ -234,6 +237,7 @@ class Document:
         source = self._resolve_source(use_enhanced)
         self.tables = []
         self.page_images = {}
+        self._history = self._read_history()
         self.baseline_regions = []
         self.fusion_reports = {}
         #: Boxed regions — closed frames with no internal division.
@@ -943,23 +947,41 @@ class Document:
 
     def _components_on_page(self, page_num: int) -> list:
         """Every rule-detected component on a page, as DetectedComponent."""
-        return [component for _source, component in self._page_components(page_num)]
+        return [component for _source, component, _sibs, _parent
+                in self._page_components(page_num)]
 
-    def _page_components(self, page_num: int) -> list[tuple[Any, Any]]:
-        """``(source, component)`` for everything detected on a page.
+    def _page_components(self, page_num: int) -> list[tuple[Any, Any, Any, Any]]:
+        """``(source, component, siblings, parent)`` for everything on a page.
 
         ``source`` is the object the component was built from — a raw dict for
         most collections, a table model for tables. Handed back alongside so a
         result worked out here (a confidence, say) can be written where the
         rest of the pipeline will actually read it, rather than onto a copy
         that is thrown away.
+
+        ``siblings`` and ``parent`` come along because a region's *relationships*
+        are what make a description transferable to another document, and they
+        can only be worked out here, while the tree is still standing.
         """
         from piply_opdf.core.types import DetectedComponent
 
-        found: list[tuple[Any, DetectedComponent]] = []
+        found: list[tuple[Any, DetectedComponent, list, Any]] = []
 
-        def collect(raw: dict) -> None:
-            """One raw dict and everything nested inside it.
+        def build(raw: dict) -> DetectedComponent | None:
+            box = BBox.from_any(raw.get("bbox"))
+            if box is None:
+                return None
+            return DetectedComponent(
+                id=raw.get("id", ""),
+                type=raw.get("type", "UNKNOWN"),
+                page=page_num,
+                bbox=box,
+                confidence=raw.get("confidence", 0.5),
+                metadata=raw.get("metadata", {}) or {},
+            )
+
+        def collect(level: list[dict], parent: DetectedComponent | None) -> None:
+            """One level of the tree, then each child level in turn.
 
             Children are included deliberately. Most of what a person actually
             reviews is cells and segmented units, not the container that holds
@@ -967,30 +989,26 @@ class Document:
             below it is nearly 200. Scoring only the top level would leave the
             review queue describing the handful of things nobody was worried
             about.
+
+            Relationships are scoped to a level: the children of a table are
+            positioned against each other, not against a logo elsewhere on the
+            page.
             """
-            box = BBox.from_any(raw.get("bbox"))
-            if box is not None:
-                found.append((
-                    raw,
-                    DetectedComponent(
-                        id=raw.get("id", ""),
-                        type=raw.get("type", "UNKNOWN"),
-                        page=page_num,
-                        bbox=box,
-                        confidence=raw.get("confidence", 0.5),
-                        metadata=raw.get("metadata", {}) or {},
-                    ),
-                ))
-            for child in raw.get("children") or []:
-                if isinstance(child, dict):
-                    collect(child)
+            built = [(raw, build(raw)) for raw in level]
+            siblings = [c for _raw, c in built if c is not None]
+
+            for raw, component in built:
+                if component is None:
+                    continue
+                found.append((raw, component, siblings, parent))
+                children = [c for c in (raw.get("children") or []) if isinstance(c, dict)]
+                if children:
+                    collect(children, component)
 
         for name in ("panels", "headers", "footers", "titles", "key_values",
                      "paragraphs", "sentences", "list_items", "graphics"):
-            for raw in getattr(self, name, []) or []:
-                if raw.get("page", 1) != page_num:
-                    continue
-                collect(raw)
+            collect([raw for raw in (getattr(self, name, []) or [])
+                     if raw.get("page", 1) == page_num], None)
 
         for table in list(self.tables) + list(self.borderless_tables):
             if getattr(table, "page", 1) != page_num:
@@ -1007,6 +1025,7 @@ class Document:
                     bbox=BBox(int(tb.x), int(tb.y), int(tb.width), int(tb.height)),
                     confidence=getattr(table, "confidence", 0.8),
                 ),
+                [], None,
             ))
         return found
 
@@ -1027,6 +1046,7 @@ class Document:
         whether they separated enough to be worth sorting at all.
         """
         from piply_opdf.confidence import assess, spread
+        from piply_opdf.knowledge import describe
 
         images = self.page_images.get(page_num)
         if images is None:
@@ -1034,26 +1054,59 @@ class Document:
         height, width = images.structural.shape[:2]
 
         scored = []
-        for source, component in self._page_components(page_num):
+        for source, component, siblings, parent in self._page_components(page_num):
             crop = self._crop(images.structural, component.bbox)
             confidence = assess(
                 component, (width, height), crop=crop, store=self.layout_store,
+                history=self._history, parent=parent,
             )
             scored.append(confidence)
 
+            # Described here and carried along, not re-derived at review time.
+            # Relationships need the tree, and the tree only exists now; by the
+            # time a person confirms the region, its siblings are rows in a
+            # database and putting them back together would be guesswork.
+            features = describe(
+                component, (width, height),
+                siblings=siblings, parent=parent, crop=crop,
+            )
+
             if isinstance(source, dict):
                 source["confidence"] = round(confidence.score, 4)
-                source.setdefault("metadata", {})["confidence"] = confidence.as_metadata()
+                extra = source.setdefault("metadata", {})
+                extra["confidence"] = confidence.as_metadata()
+                extra["layout_features"] = features.as_row()
             else:
                 source.confidence = round(confidence.score, 4)
                 if hasattr(source, "metadata"):
                     source.metadata = {**(source.metadata or {}),
-                                       "confidence": confidence.as_metadata()}
+                                       "confidence": confidence.as_metadata(),
+                                       "layout_features": features.as_row()}
 
         if scored:
             self.confidence_reports[page_num] = spread(scored)
             logger.info("Page %d confidence: %s",
                         page_num, self.confidence_reports[page_num].summary())
+
+    def _read_history(self) -> dict[str, Any]:
+        """Each detector's track record, from the layout feedback log.
+
+        Read once per run rather than per component: it is the same answer for
+        every region, and it changes only when a person reviews something.
+
+        Empty when no store is attached or nobody has reviewed anything, which
+        makes ``historical_reliability`` unmeasured rather than zero — an
+        untested detector must not read as a failing one.
+        """
+        if self.layout_store is None:
+            return {}
+        try:
+            from piply_opdf.knowledge import tally
+
+            return tally(self.layout_store.feedback())
+        except Exception as error:                  # a bad store is not fatal
+            logger.warning("Could not read review history: %s", error)
+            return {}
 
     def _score_grid(self, page_num: int) -> None:
         """Score the parts of every table: columns, rows and cells.
@@ -1072,6 +1125,7 @@ class Document:
         """
         from piply_opdf.confidence import assess
         from piply_opdf.core.types import DetectedComponent
+        from piply_opdf.knowledge import describe
 
         images = self.page_images.get(page_num)
         if images is None:
@@ -1095,32 +1149,45 @@ class Document:
                 (ComponentType.ROW, getattr(table, "rows", None)),
                 (ComponentType.CELL, getattr(table, "cells", None)),
             ):
-                for part in parts or []:
-                    # Borderless tables keep rows and columns as bare tuples,
-                    # which have nowhere to record evidence. Skipped rather
-                    # than silently scored into a value nobody reads.
-                    if not hasattr(part, "metadata"):
-                        continue
-                    box = _grid_bbox(getattr(part, "bbox", None))
-                    if box is None:
-                        continue
+                # Borderless tables keep rows and columns as bare tuples, which
+                # have nowhere to record evidence. Skipped rather than silently
+                # scored into a value nobody reads.
+                usable = [p for p in (parts or []) if hasattr(p, "metadata")
+                          and _grid_bbox(getattr(p, "bbox", None)) is not None]
 
-                    component = DetectedComponent(
-                        id=str(getattr(part, "cell_id", getattr(part, "row_id",
-                              getattr(part, "column_id", "")))),
-                        type=kind, page=page_num, bbox=box,
-                        confidence=getattr(part, "confidence", 1.0),
-                        metadata={"detector": "grid-builder"},
+                # A cell's neighbours are the other cells of the same table —
+                # which is what makes "a header row is text above rows sharing
+                # its column edges" expressible at all.
+                siblings = [
+                    DetectedComponent(
+                        id="", type=kind, page=page_num,
+                        bbox=_grid_bbox(part.bbox),
                     )
+                    for part in usable
+                ]
+
+                for part, component in zip(usable, siblings):
+                    box = component.bbox
+                    component.id = str(getattr(part, "cell_id", getattr(
+                        part, "row_id", getattr(part, "column_id", ""))))
+                    component.confidence = getattr(part, "confidence", 1.0)
+                    component.metadata = {"detector": "grid-builder"}
+
                     confidence = assess(
                         component, (width, height),
                         crop=self._crop(images.structural, box),
                         store=self.layout_store,
+                        history=self._history,
                         parent=parent,
+                    )
+                    features = describe(
+                        component, (width, height), siblings=siblings,
+                        parent=parent, crop=self._crop(images.structural, box),
                     )
                     part.confidence = round(confidence.score, 4)
                     part.metadata = {**(part.metadata or {}),
-                                     "confidence": confidence.as_metadata()}
+                                     "confidence": confidence.as_metadata(),
+                                     "layout_features": features.as_row()}
                     scored += 1
 
         if scored:

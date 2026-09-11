@@ -12,6 +12,8 @@ class ComponentBase(BaseModel):
     #: Itemised evidence behind `confidence`, as JSON. None for components
     #: scored before the evidence model existed.
     evidence_json: Optional[str] = None
+    #: The region as ratios and relationships, ready to become knowledge.
+    layout_features_json: Optional[str] = None
 
 class ComponentCreate(ComponentBase):
     pass

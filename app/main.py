@@ -528,3 +528,140 @@ async def delete_knowledge(kb_id: int):
     finally:
         session.close()
     return {"status": "success"}
+
+
+# ── Layout knowledge ──────────────────────────────────────────────────────────
+#
+# The point where the system is allowed to learn. Everything else in this file
+# reads or writes working state; this writes to the portable knowledge base,
+# and it is the only route that does so for layouts.
+#
+# One rule governs it: **only a human decision creates knowledge.** A detector's
+# output is a proposal, never truth. `LayoutKnowledgeStore.remember` enforces
+# that by refusing any source other than a person, so the rule cannot be
+# relaxed by mistake here.
+
+LAYOUT_KB_PATH = os.path.join("knowledge", "piply_opdf_layout-001.db")
+
+
+def _layout_store():
+    from piply_opdf.knowledge import LayoutKnowledgeStore
+    return LayoutKnowledgeStore(LAYOUT_KB_PATH)
+
+
+@app.post("/layout-feedback/{component_id}")
+def record_layout_decision(
+    component_id: int,
+    action: str = Query(..., description="confirmed | corrected | deleted"),
+    human_type: Optional[str] = Query(None, description="required when correcting"),
+    db: Session = Depends(database.get_db),
+):
+    """Record what a person decided about a region's *type*.
+
+    Two things happen, and they answer different questions:
+
+    * A `layout_feedback` row always. That is the record of the decision, and
+      what makes a detector measurable — `corrected` counts against its type
+      accuracy, `deleted` against its precision.
+    * A `layout_knowledge` record only when the region survives review, with
+      the type the *person* settled on. A deleted region teaches nothing about
+      what a region looks like; it teaches that the detector invented one, and
+      that belongs in the feedback log alone.
+    """
+    import json
+
+    from piply_opdf.knowledge import (
+        LayoutAction, LayoutFeatures, LayoutFeedback, Provenance,
+    )
+
+    if action not in LayoutAction.ALL:
+        raise HTTPException(400, f"unknown action {action!r}")
+
+    component = db.query(models.Component).filter(
+        models.Component.id == component_id).first()
+    if component is None:
+        raise HTTPException(404, "Component not found")
+
+    if action == LayoutAction.CORRECTED and not human_type:
+        raise HTTPException(400, "correcting a region needs the type it should be")
+
+    document = db.query(models.Document).filter(
+        models.Document.id == component.document_id).first()
+    settled_type = human_type or component.component_type
+
+    evidence = json.loads(component.evidence_json) if component.evidence_json else {}
+    detector = (evidence.get("signals", {})
+                        .get("detector_evidence", {})
+                        .get("reason", ""))
+    provenance = Provenance(
+        source_document=document.filename if document else "",
+        source_page=component.page_no or 1,
+        detector_name=detector.replace(" rule fired", "") or "unknown",
+    )
+
+    learned_id = None
+    with _layout_store() as store:
+        if action in (LayoutAction.CONFIRMED, LayoutAction.CORRECTED,
+                      LayoutAction.ADDED):
+            if not component.layout_features_json:
+                raise HTTPException(
+                    409,
+                    "This component was processed before layout features were "
+                    "recorded, so there is nothing to learn from. Reprocess the "
+                    "document to teach from it.",
+                )
+            features = LayoutFeatures(**json.loads(component.layout_features_json))
+            # The human's answer, not the detector's. Storing the detected type
+            # would teach the mistake that was just corrected.
+            features = replace_type(features, settled_type)
+            learned_id = store.remember(features, provenance, source="human")
+
+        store.record(LayoutFeedback(
+            action=action,
+            document_id=str(component.document_id),
+            page_no=component.page_no or 1,
+            provenance=provenance,
+            layout_knowledge_id=learned_id,
+            detected_type=component.component_type,
+            human_type=settled_type,
+            bbox_before=_bbox_of(component),
+        ))
+        stats = store.stats()
+
+    if action == LayoutAction.CORRECTED:
+        component.component_type = settled_type
+        db.commit()
+
+    return {
+        "action": action,
+        "component_id": component_id,
+        "learned": learned_id is not None,
+        "layout_knowledge_id": learned_id,
+        "knowledge_total": stats["usable"],
+    }
+
+
+@app.get("/layout-knowledge/stats")
+def layout_knowledge_stats():
+    """What the layout knowledge base holds, and how much of it is usable."""
+    with _layout_store() as store:
+        return store.stats()
+
+
+def replace_type(features, component_type: str):
+    """The same description under the type a person settled on."""
+    import dataclasses
+    return dataclasses.replace(features, component_type=component_type)
+
+
+def _bbox_of(component):
+    """The component's box, in the form the knowledge store records."""
+    import json
+
+    from piply_opdf.core.types import BBox
+
+    try:
+        x0, y0, x1, y1 = json.loads(component.bbox)
+    except Exception:
+        return None
+    return BBox(int(x0), int(y0), int(x1 - x0), int(y1 - y0))

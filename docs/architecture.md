@@ -416,8 +416,11 @@ Human corrections are logged as **five distinct actions** —
 agree/disagree flag, because finding a region and naming it correctly are
 different skills that need opposite fixes.
 
-**Built and empty.** The store works and is tested; nothing in the running
-system writes to it yet. See K5 in [backlog.md](backlog.md).
+**The loop is closed.** `POST /layout-feedback/{id}` writes a record when a
+person confirms or corrects a region in the review screen, and the pipeline
+reads the feedback log at the start of every run. A correction is stored under
+the type the *person* chose; a deleted region is recorded against the detector
+and enters no knowledge at all.
 
 Schemas: [database.md](database.md). The working database (`piply_opdf.db`) is
 disposable — delete and reprocess. The knowledge databases are the asset.

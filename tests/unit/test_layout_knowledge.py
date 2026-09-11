@@ -521,3 +521,77 @@ def test_reopening_the_file_keeps_what_was_written(tmp_path):
 
     with LayoutKnowledgeStore(path) as second:
         assert len(second.candidates()) == 1
+
+
+# ── the learning loop ────────────────────────────────────────────────────────
+#
+# What a human decision does, end to end. This is the point the whole store
+# exists for, and the rules it has to keep are the ones a hurried change would
+# quietly drop.
+
+def test_a_correction_teaches_the_humans_answer_not_the_detectors(store):
+    """The mistake worth avoiding: storing the type that was just corrected.
+
+    A detector said CELL, a person said HEADING. Recording CELL would teach the
+    system the error it was being told about.
+    """
+    import dataclasses
+
+    detected = describe(_component(ComponentType.CELL, (400, 1100, 400, 80)), A4_300DPI)
+    settled = dataclasses.replace(detected, component_type=ComponentType.HEADING)
+
+    store.remember(settled, _provenance(), source="human")
+
+    learned = store.candidates()
+    assert len(learned) == 1
+    assert learned[0].features.component_type == ComponentType.HEADING
+    assert store.candidates(ComponentType.CELL) == []
+
+
+def test_a_deleted_region_teaches_the_detector_not_the_knowledge_base(store):
+    """It says the detector invented something. That is a fact about the
+    detector, and there is no region to learn what one looks like from."""
+    store.record(LayoutFeedback(
+        action=LayoutAction.DELETED, document_id="d", page_no=1,
+        provenance=_provenance(), detected_type=ComponentType.TABLE,
+    ))
+
+    assert store.candidates() == [], "nothing entered the knowledge base"
+    assert len(store.feedback()) == 1, "but the decision is on record"
+    assert tally(store.feedback())["header"].detection_precision == 0.0
+
+
+def test_a_detectors_record_becomes_measurable_once_people_review(store):
+    """The signal that is unmeasured today and turns itself on later, with no
+    code change — which is the point of "missing is not zero"."""
+    from piply_opdf.confidence import historical_signal
+
+    component = _component(ComponentType.CELL, (0, 0, 100, 50))
+    component.metadata["detector"] = "grid-builder"
+
+    assert historical_signal(component, tally(store.feedback())).value is None
+
+    for action in (LayoutAction.CONFIRMED, LayoutAction.CONFIRMED,
+                   LayoutAction.CORRECTED, LayoutAction.CORRECTED):
+        store.record(LayoutFeedback(
+            action=action, document_id="d", page_no=1,
+            provenance=_provenance(detector_name="grid-builder"),
+        ))
+
+    signal = historical_signal(component, tally(store.feedback()))
+    assert signal.value == pytest.approx(0.5)
+    assert "2 of 4" in signal.reason
+
+
+def test_learning_from_one_document_is_visible_to_the_next(store):
+    """The compounding asset, in miniature: a region confirmed on one page is
+    a candidate the next page can be compared against."""
+    features = describe(_component(ComponentType.HEADER, (100, 60, 2280, 140)), A4_300DPI)
+
+    assert store.candidates(ComponentType.HEADER) == []
+    store.remember(features, _provenance(source_document="first.pdf"), source="human")
+
+    carried = store.candidates(ComponentType.HEADER)
+    assert len(carried) == 1
+    assert carried[0].provenance.source_document == "first.pdf"
+    assert carried[0].features.page_band == "top"

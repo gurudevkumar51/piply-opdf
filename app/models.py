@@ -45,6 +45,12 @@ class Component(Base):
     # score still have a confidence and no account of it.
     evidence_json = Column(Text, nullable=True)
 
+    # The region described as ratios and relationships, ready to become
+    # layout knowledge the moment a person confirms it. Computed during
+    # processing rather than at review time, because relationships need the
+    # component tree and by review time the siblings are database rows.
+    layout_features_json = Column(Text, nullable=True)
+
     document = relationship("Document", back_populates="components")
     predictions = relationship("OCRPrediction", back_populates="component", cascade="all, delete-orphan")
     children = relationship("Component", backref="parent", remote_side=[id])

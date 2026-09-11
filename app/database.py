@@ -24,7 +24,7 @@ Base = declarative_base()
 #: data, while anything that drops or rewrites one needs a person deciding what
 #: the old values meant.
 LATER_COLUMNS: dict[str, dict[str, str]] = {
-    "components": {"evidence_json": "TEXT"},
+    "components": {"evidence_json": "TEXT", "layout_features_json": "TEXT"},
 }
 
 

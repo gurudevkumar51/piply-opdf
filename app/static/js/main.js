@@ -706,6 +706,7 @@ function renderOCRPanel(component) {
         ocrPanel.innerHTML = `
             ${imageCropHtml}
             ${renderWhyPanel(component)}
+            ${renderTypeDecision(component)}
             <div class="empty-state">No OCR data for this component.</div>
             ${runOcrBtn}
         `;
@@ -720,6 +721,7 @@ function renderOCRPanel(component) {
     ocrPanel.innerHTML = `
         ${imageCropHtml}
         ${renderWhyPanel(component)}
+        ${renderTypeDecision(component)}
         <div class="mb-4">
             <span class="label-micro">Predicted Text</span>
             <div class="panel mt-1.5 p-2.5 text-ink" style="border-radius: var(--r);">
@@ -807,6 +809,91 @@ function renderWhyPanel(component) {
         ${warning}
         <table class="mt-1.5" style="width:100%;">${rows}</table>
     </details>`;
+}
+
+
+//: The types an operator can correct a region to. Kept short on purpose: a
+//: list of thirty is a list nobody reads, and these are the confusions that
+//: actually happen — see docs/components.md.
+const CORRECTABLE_TYPES = [
+    'HEADER', 'FOOTER', 'TITLE', 'HEADING', 'PARAGRAPH', 'SENTENCE',
+    'KEY_VALUE', 'LIST_ITEM', 'TABLE', 'PANEL', 'CELL', 'ROW', 'COLUMN',
+    'LOGO', 'STAMP', 'SIGNATURE', 'HANDWRITING', 'SEPARATOR', 'IMAGE',
+];
+
+/**
+ * Where a person teaches the system what a region is.
+ *
+ * Only a human decision creates layout knowledge — a detector's answer is a
+ * proposal. Confirming is therefore not a no-op: it is the act that turns a
+ * guess into something the system may rely on later.
+ */
+function renderTypeDecision(component) {
+    const canLearn = !!component.layout_features_json;
+    const options = CORRECTABLE_TYPES.map(t =>
+        `<option value="${t}"${t === component.component_type ? ' selected' : ''}>${t}</option>`
+    ).join('');
+
+    if (!canLearn) {
+        return `
+        <div class="mb-4">
+            <span class="label-micro">Region type</span>
+            <div class="text-muted-2 text-xs mt-1">
+                ${escapeHtml(component.component_type)} — processed before layout
+                features were recorded, so there is nothing to learn from here.
+                Reprocess the document to teach from it.
+            </div>
+        </div>`;
+    }
+
+    return `
+    <div class="mb-4">
+        <span class="label-micro">Region type</span>
+        <div class="flex gap-1.5 mt-1.5 items-center">
+            <select id="type-correction" class="field field-auto field-sm">${options}</select>
+            <button class="btn btn-sm" onclick="teachLayout(${component.id})"
+                    title="Record that this type is right. Only human decisions become knowledge.">
+                Confirm
+            </button>
+            <button class="btn btn-sm" onclick="teachLayout(${component.id}, 'deleted')"
+                    title="This region should not exist. Recorded against the detector's precision.">
+                Not a region
+            </button>
+        </div>
+        <div id="teach-result" class="text-xs text-muted-2 mt-1"></div>
+    </div>`;
+}
+
+/** Send the decision, and say plainly whether anything was learned. */
+async function teachLayout(componentId, forcedAction) {
+    const select = document.getElementById('type-correction');
+    const chosen = select ? select.value : null;
+    const current = components.find(c => c.id === componentId);
+    const action = forcedAction
+        || (chosen && current && chosen !== current.component_type ? 'corrected' : 'confirmed');
+
+    const params = new URLSearchParams({ action });
+    if (action === 'corrected') params.set('human_type', chosen);
+
+    const box = document.getElementById('teach-result');
+    if (box) box.textContent = 'Recording…';
+    try {
+        const res = await fetch(`/layout-feedback/${componentId}?${params}`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+            if (box) box.textContent = data.detail || 'Could not record that.';
+            return;
+        }
+        if (box) {
+            box.textContent = data.learned
+                ? `Recorded as ${action}. The layout knowledge base now holds ${data.knowledge_total}.`
+                : `Recorded as ${action}. Nothing learned — a region that should not exist `
+                  + `teaches the detector, not the knowledge base.`;
+        }
+        if (action === 'corrected' && current) current.component_type = chosen;
+    } catch (err) {
+        if (box) box.textContent = `Could not record that: ${err.message}`;
+    }
 }
 
 async function runOcrOnCell(componentId) {

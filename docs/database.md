@@ -71,7 +71,8 @@ projects and machines.
 | `cluster_id` | Integer | Links to a knowledge cluster |
 | `quality_score`, `rotation_angle`, `foreground_ratio`, `entropy`, `skeleton_length` | Float/Int | Quality metrics |
 | `features_json` | Text | Full feature vector, transferred to knowledge on verification |
-| `evidence_json` | Text | The itemised evidence behind `confidence`. Present for 201 of 202 components on `sample.pdf` |
+| `evidence_json` | Text | The itemised evidence behind `confidence`. Present for 202 of 202 components on `sample.pdf` |
+| `layout_features_json` | Text | The region as ratios and relationships, ready to become layout knowledge the moment a person confirms it. Computed during processing, because relationships need the component tree |
 
 ## `ocr_predictions`
 

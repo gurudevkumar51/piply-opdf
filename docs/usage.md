@@ -94,6 +94,19 @@ accuracy figure needs the gold corpus.
 
 Schema: [database.md](database.md).
 
+### Teaching it from the review screen
+
+```
+POST /layout-feedback/{component_id}?action=confirmed
+POST /layout-feedback/{component_id}?action=corrected&human_type=HEADING
+POST /layout-feedback/{component_id}?action=deleted
+GET  /layout-knowledge/stats
+```
+
+`confirmed` and `corrected` write a knowledge record **under the type the
+person chose**; `deleted` writes only a feedback row, because a region that
+should not exist teaches the detector rather than the knowledge base.
+
 ## Confidence
 
 A score derived from six named signals, and taken apart afterwards.

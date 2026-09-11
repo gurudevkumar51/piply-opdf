@@ -109,6 +109,10 @@ never resolved silently. Off by default: it costs several seconds a page.
 - A layout knowledge store holds those descriptions with a version block, and
   refuses two things by design: any source that is not a person, and any
   comparison across feature versions
+- **A person confirming or correcting a region in the review screen teaches
+  the system** — the correction is stored under the type *they* chose, and a
+  deleted region is recorded against the detector without entering the
+  knowledge base at all
 - Confidence can be **derived from six named signals** rather than declared, and
   taken apart afterwards — an operator asking "why is this only 0.55?" gets an
   itemised answer, including which signals nobody could measure

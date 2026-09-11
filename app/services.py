@@ -50,11 +50,17 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
         db.commit()
         
         from piply_opdf.document import Document
+        from piply_opdf.knowledge import LayoutKnowledgeStore
         file_path = os.path.join(UPLOAD_DIR, filename)
-        
-        # Run Piply pipeline
-        piply_doc = Document(file_path)
-        piply_doc.run_all()
+
+        # The layout knowledge base is handed to the pipeline so two confidence
+        # signals can be measured at all: whether anything like this region has
+        # been confirmed before, and how often the detector that proposed it has
+        # been right. Both stay unmeasured — not zero — while the store is empty.
+        layout_kb = os.path.join("knowledge", "piply_opdf_layout-001.db")
+        with LayoutKnowledgeStore(layout_kb) as layout_store:
+            piply_doc = Document(file_path, layout_store=layout_store)
+            piply_doc.run_all()
         
         doc_record.page_count = piply_doc.assessment.page_count
         
@@ -88,6 +94,11 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
             evidence = (manifest.get('metadata') or {}).get('confidence')
             return json.dumps(evidence) if evidence else None
 
+        def _layout_features_of(manifest):
+            """The region described as ratios and relationships, as JSON."""
+            features = (manifest.get('metadata') or {}).get('layout_features')
+            return json.dumps(features) if features else None
+
         def insert_component(manifest, comp_type, page_num, parent_id=None, row_idx=None):
             # Normalize bbox to [x0, y0, x1, y1] array format
             bbox = manifest.get('bbox', [])
@@ -120,6 +131,7 @@ def run_piply_pipeline(document_id: int, filename: str, _db: Session):
                 # out. Absent for table cells, whose number comes from the grid
                 # builder rather than from a detector claim.
                 evidence_json=_evidence_of(manifest),
+                layout_features_json=_layout_features_of(manifest),
             )
             db.add(db_comp)
             db.flush() # get id

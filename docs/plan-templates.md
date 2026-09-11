@@ -6,8 +6,9 @@ what was still useful from it lives in [Beyond the parser](#beyond-the-parser),
 [What I need from you](#what-i-need-from-you).
 
 **Status: Phase Q and Phase B are built. Phases K and C are part built — the
-layout knowledge store exists and is empty; confidence is derived from evidence
-but not yet calibrated or wired in. Everything else is plan.**
+layout knowledge store fills as people review, and confidence is derived from
+evidence and wired through the pipeline and the screen, but not yet calibrated.
+Everything else is plan.**
 See [Progress](#progress) for the line-by-line position.
 
 *Fifth revision. Confidence becomes an evidence score. Nothing is trusted
@@ -358,23 +359,27 @@ piply-opdf detect <pdf> --baseline paddle|none
 
 ## Phase K — Knowledge architecture
 
-**🔨 Part built.** The layout store and the action taxonomy exist and are
-tested; nothing writes to them from the running system yet, and template
-knowledge is still Phase T.
+**🔨 Part built.** The layout store, the action taxonomy and the route that
+fills them all exist. Template knowledge is still Phase T.
 
 **Three separate stores**, each its own file so other applications can use them.
 
 | Store | Answers | Today |
 |---|---|---|
 | Text knowledge | "What does this say?" | ✅ 1,656 entries |
-| **Layout knowledge** | "What kind of region is this?" | 🔨 built and empty |
+| **Layout knowledge** | "What kind of region is this?" | 🔨 built, filling as people review |
 | **Template knowledge** | "What does a page of this family look like?" | ❌ nothing |
 
-*Built and empty* is the honest description: `LayoutKnowledgeStore` works, the
-schema is in [database.md](database.md), the CLI reads and moves it — but the
-review screen does not call `remember()` yet, so no human decision has reached
-it. That wiring is K5 in [backlog.md](backlog.md), and it waits on the review
-work in Phase U.
+The loop is closed. A person confirming or correcting a region in the review
+screen writes a record, and the pipeline reads the feedback log at the start of
+each run — so `historical_reliability`, which was unmeasured because nothing
+wrote to the log, now reports real numbers. What people teach today changes
+what the system doubts tomorrow, with no code change.
+
+`knowledge_agreement` is still unmeasured. Records exist, but *comparing* a
+live region against them is the LayoutPredictor, which is Phase T. That is the
+next thing that would make the knowledge base pay for itself rather than merely
+accumulate.
 
 One feature extractor in the package feeds all three, so they cannot drift.
 
@@ -1012,7 +1017,7 @@ those labels exist, precision and recall are unmeasured, not merely low.
 | 2 | E — gold corpus and metrics | 🔴 blocked — harness built, no labels |
 | 3 | E — measure the current detectors | ⬜ waiting on 2 |
 | 4 | B — baseline model + fusion | ✅ done |
-| 5 | K — knowledge architecture | 🔨 layout store built, nothing writes to it |
+| 5 | K — knowledge architecture | 🔨 layout store built and filling; templates are Phase T |
 | 6 | C — confidence as an evidence score | 🔨 built and wired; calibration waits on 2 |
 | 7 | R — borderless tables | ⬜ |
 | 8 | E — re-measure | ⬜ waiting on 2 |
